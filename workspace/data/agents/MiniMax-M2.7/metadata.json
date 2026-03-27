@@ -1,0 +1,18 @@
+{
+  "name": "MiniMax-M2.7",
+  "description": "FastClaw 主智能体",
+  "llm": {
+    "gateway": "openai",
+    "provider": "minimax",
+    "model": "MiniMax-M2.7",
+    "api_key": "your-api-key",
+    "base_url": "https://api.minimax.chat/v1",
+    "multimodal": true
+  },
+  "context": {
+    "max_tokens": 80000,
+    "unload_threshold_tokens": 80000
+  },
+  "extra_workspaces": [],
+  "created_at": 1774624922
+}

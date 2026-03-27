@@ -1,0 +1,9 @@
+fastmind>=0.1.6
+openai>=1.0.0
+websockets>=10.0
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
+fastapi>=0.100.0
+uvicorn[standard]>=0.35.0
+httpx>=0.23.0
+anyio>=4.5

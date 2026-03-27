@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FastClaw</title>
+    <link rel="stylesheet" href="/webui/static/css/element-plus.css">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #fff; color: #000; height: 100vh; overflow: hidden; }
+        #app { height: 100vh; display: flex; flex-direction: column; }
+        .header { height: 56px; border-bottom: 1px solid #e0e0e0; display: flex; align-items: center; padding: 0 20px; }
+        .header-title { font-size: 18px; font-weight: 600; flex-shrink: 0; }
+        .header-tabs { margin-left: auto; }
+        .main { flex: 1; overflow: hidden; display: flex; }
+        .chat-layout { flex: 1; display: flex; overflow: hidden; }
+        .sidebar { width: 260px; border-right: 1px solid #e0e0e0; background: #fafafa; display: flex; flex-direction: column; }
+        .sidebar-header { padding: 16px; border-bottom: 1px solid #e0e0e0; }
+        .sidebar-list { flex: 1; overflow-y: auto; padding: 8px; }
+        .session-item { padding: 10px 12px; border-radius: 6px; cursor: pointer; margin-bottom: 4px; }
+        .session-item:hover, .session-item.active { background: #e8e8e8; }
+        .session-name { font-size: 14px; }
+        .session-time { font-size: 11px; color: #888; }
+        .chat-main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+        .chat-header { padding: 12px 20px; border-bottom: 1px solid #e0e0e0; display: flex; justify-content: space-between; align-items: center; }
+        .chat-messages { flex: 1; overflow-y: auto; padding: 20px; }
+        .message { margin-bottom: 16px; display: flex; flex-direction: column; }
+        .message-user { align-items: flex-end; }
+        .message-assistant { align-items: flex-start; width: 100%; }
+        .msg-content { border-radius: 12px; font-size: 14px; line-height: 1.5; word-break: break-word; text-align: left; display: block; }
+        .message-user .msg-content { background: #000; color: #fff; padding: 10px 14px; }
+        .tool-badge { font-size: 12px; color: #666; margin-top: 4px; }
+        .chat-input-area { padding: 16px 20px; border-top: 1px solid #e0e0e0; }
+        .input-row { display: flex; gap: 12px; }
+        .input-row textarea { flex: 1; resize: none; }
+        .loading { display: inline-flex; align-items: center; gap: 6px; color: #666; }
+        .loading span { width: 4px; height: 4px; background: #666; border-radius: 50%; animation: dot 1.4s infinite; }
+        .loading span:nth-child(2) { animation-delay: 0.16s; }
+        .loading span:nth-child(3) { animation-delay: 0.32s; }
+        @keyframes dot { 0%, 80%, 100% { transform: scale(0.6); opacity: 0.5; } 40% { transform: scale(1); opacity: 1; } }
+        .tab-content { flex: 1; overflow-y: auto; padding: 24px; }
+        .page-title { font-size: 20px; font-weight: 600; margin-bottom: 24px; }
+        .toolbar { margin-bottom: 16px; display: flex; gap: 12px; }
+        .cmd-table { width: 100%; border-collapse: collapse; }
+        .cmd-table th, .cmd-table td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #e8e8e8; }
+        .cmd-table th { background: #fafafa; font-weight: 500; }
+        .cmd-table code { background: #f5f5f5; padding: 2px 6px; border-radius: 3px; font-family: monospace; font-size: 12px; }
+        .settings-item { margin-bottom: 12px; display: flex; align-items: center; gap: 12px; }
+        .settings-item label { width: 120px; color: #666; }
+        .empty-state { text-align: center; padding: 60px; color: #999; }
+        .msg-content h1, .msg-content h2, .msg-content h3 { margin-top: 12px; margin-bottom: 8px; font-weight: 600; }
+        .msg-content h1 { font-size: 18px; }
+        .msg-content h2 { font-size: 16px; }
+        .msg-content h3 { font-size: 14px; }
+        .msg-content p { margin: 8px 0; }
+        .msg-content ul, .msg-content ol { margin: 8px 0; padding-left: 20px; }
+        .msg-content li { margin: 4px 0; }
+        .msg-content strong { font-weight: 600; }
+        .msg-content code { background: #e8e8e8; padding: 2px 6px; border-radius: 3px; font-family: monospace; font-size: 12px; }
+        .msg-content pre { background: #e8e8e8; padding: 10px; border-radius: 6px; overflow-x: auto; margin: 8px 0; }
+        .msg-content pre code { background: none; padding: 0; }
+        .msg-content blockquote { border-left: 3px solid #ccc; padding-left: 10px; margin: 8px 0; color: #666; }
+        .thinking-content { color: #999; font-size: 13px; margin-bottom: 8px; white-space: pre-wrap; word-break: break-word; text-align: left; }
+        .tool-content { color: #999; font-size: 13px; margin-bottom: 8px; white-space: pre-wrap; word-break: break-word; text-align: left; }
+        .tool-output-container { background: #f8f8f8; border-left: 3px solid #999; border-radius: 4px; padding: 6px 12px; margin: 4px 0; }
+        .tool-output-header { color: #666; font-size: 12px; font-weight: 500; margin-bottom: 4px; }
+        .tool-output-content { margin: 0; white-space: pre-wrap; word-break: break-word; font-size: 13px; color: #333; }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <div class="header">
+            <span class="header-title">FastClaw</span>
+            <el-tabs v-model="activeTab" @tab-change="onTabChange" class="header-tabs">
+                <el-tab-pane label="Chat" name="chat"></el-tab-pane>
+                <el-tab-pane label="Cron" name="cron"></el-tab-pane>
+                <el-tab-pane label="Settings" name="settings"></el-tab-pane>
+            </el-tabs>
+        </div>
+        <div class="main">
+            <div v-if="activeTab === 'chat'" class="chat-layout">
+                <div class="sidebar">
+                    <div class="sidebar-header">
+                        <el-button type="primary" style="width:100%;background:#000;border-color:#000" @click="createSession">+ New Chat</el-button>
+                        <el-input v-model="searchText" placeholder="Search sessions..." clearable style="margin-top:12px"></el-input>
+                    </div>
+                    <div class="sidebar-list">
+                        <div v-for="s in filteredSessions" :key="s.session_id"
+                             class="session-item" :class="{active: s.session_id === currentSessionId}"
+                             @click="selectSession(s.session_id)">
+                            <div class="session-name">{{ s.name || s.session_id }}</div>
+                            <div class="session-time">{{ formatTime(s.last_active_time) }}</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="chat-main">
+                    <template v-if="currentSessionId">
+                        <div class="chat-header">
+                            <span>session_id : {{ currentSessionId }}</span>
+                            <el-button-group size="small">
+                                <el-button @click="showBindAgentDialog">Bind Agent</el-button>
+                                <el-button @click="clearSession">Clear</el-button>
+                                <el-button @click="deleteSession">Delete</el-button>
+                            </el-button-group>
+                        </div>
+                        <el-dialog v-model="bindAgentDialogVisible" title="Bind Agent" width="400px">
+                            <el-form :model="bindAgentForm" label-width="100px">
+                                <el-form-item label="Agent">
+                                    <el-select v-model="bindAgentForm.agent_id" style="width:100%">
+                                        <el-option v-for="a in agents" :key="a.name" :label="a.name" :value="a.name"></el-option>
+                                    </el-select>
+                                </el-form-item>
+                            </el-form>
+                            <template #footer>
+                                <el-button @click="bindAgentDialogVisible=false">Cancel</el-button>
+                                <el-button type="primary" style="background:#000;border-color:#000" @click="bindAgent">Save</el-button>
+                            </template>
+                        </el-dialog>
+                        <div class="chat-messages" ref="msgContainer">
+                            <div v-for="(msg, i) in messages" :key="i" class="message" :class="'message-' + msg.role">
+                                <div v-if="msg.thinking" class="thinking-content">[思考中...] {{ msg.thinking }}</div>
+                                <div class="msg-content" v-html="getMsgContent(msg)"></div>
+                            </div>
+                            <div v-if="isStreaming" class="message message-assistant">
+                                <div class="msg-content">
+                                    <span class="loading"><span></span><span></span><span></span></span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="chat-input-area">
+                            <div class="input-row">
+                                <el-input type="textarea" v-model="chatText" :rows="3" placeholder="Type a message... (Enter to send, Shift+Enter for new line)"
+                                          @keydown.enter.exact.prevent="sendMessage"></el-input>
+                                <el-button type="primary" style="background:#000;border-color:#000" @click="sendMessage" :disabled="!chatText.trim() || isStreaming">Send</el-button>
+                            </div>
+                        </div>
+                    </template>
+                    <div v-else class="empty-state">
+                        <p>选择会话或创建新会话开始聊天</p>
+                    </div>
+                </div>
+            </div>
+            <div v-if="activeTab === 'cron'" class="tab-content">
+                <h2 class="page-title">Cron Tasks</h2>
+                <div class="toolbar">
+                    <el-button type="primary" style="background:#000;border-color:#000" @click="showCronDialog()">+ New Task</el-button>
+                    <el-button @click="loadCronTasks">Refresh</el-button>
+                </div>
+                    <el-table :data="cronTasks" stripe style="table-layout:fixed">
+                    <el-table-column prop="name" label="Name" width="120"></el-table-column>
+                    <el-table-column prop="schedule" label="Schedule" width="120">
+                        <template #default="{row}"><code>{{ row.schedule }}</code></template>
+                    </el-table-column>
+                    <el-table-column prop="description" label="Description"></el-table-column>
+                    <el-table-column prop="agent_id" label="Agent" width="120"></el-table-column>
+                    <el-table-column prop="session_id" label="Session" width="150"></el-table-column>
+                    <el-table-column label="Status" width="100">
+                        <template #default="{row}">
+                            <el-tag :type="row.enabled ? 'success' : 'info'" size="small">{{ row.enabled ? 'Enabled' : 'Disabled' }}</el-tag>
+                        </template>
+                    </el-table-column>
+                    <el-table-column label="Actions" width="240">
+                        <template #default="{row}">
+                            <el-button-group size="small">
+                                <el-button @click="triggerCron(row)">Trigger</el-button>
+                                <el-button @click="toggleCron(row)">{{ row.enabled ? 'Disable' : 'Enable' }}</el-button>
+                                <el-button @click="showCronDialog(row)">Edit</el-button>
+                                <el-button @click="deleteCron(row.id)" type="danger" plain>Delete</el-button>
+                            </el-button-group>
+                        </template>
+                    </el-table-column>
+                </el-table>
+                <el-dialog v-model="cronDialogVisible" :title="editingCron ? 'Edit Task' : 'New Task'" width="450px">
+                    <el-form :model="cronForm" label-width="90px">
+                        <el-form-item label="Name"><el-input v-model="cronForm.name"></el-input></el-form-item>
+                        <el-form-item label="Schedule"><el-input v-model="cronForm.schedule" placeholder="0 9 * * *"></el-input></el-form-item>
+                        <el-form-item label="Description"><el-input v-model="cronForm.description" type="textarea" :rows="2"></el-input></el-form-item>
+                        <el-form-item label="Agent">
+                            <el-select v-model="cronForm.agent_id" style="width:100%">
+                                <el-option v-for="a in agents" :key="a.name" :label="a.name" :value="a.name"></el-option>
+                            </el-select>
+                        </el-form-item>
+                        <el-form-item label="Session">
+                            <el-select v-model="cronForm.session_id" style="width:100%" clearable>
+                                <el-option v-for="s in sessions" :key="s.session_id" :label="s.name || s.session_id" :value="s.session_id"></el-option>
+                            </el-select>
+                        </el-form-item>
+                        <el-form-item label="Enabled"><el-switch v-model="cronForm.enabled"></el-switch></el-form-item>
+                    </el-form>
+                    <template #footer>
+                        <el-button @click="cronDialogVisible=false">Cancel</el-button>
+                        <el-button type="primary" style="background:#000;border-color:#000" @click="saveCron">Save</el-button>
+                    </template>
+                </el-dialog>
+            </div>
+            <div v-if="activeTab === 'settings'" class="tab-content">
+                <h2 class="page-title">Settings</h2>
+                <div style="margin-bottom:32px">
+                    <h3 style="font-size:16px;font-weight:600;margin-bottom:16px;padding-bottom:8px;border-bottom:1px solid #e0e0e0">General</h3>
+                    <div class="settings-item">
+                        <label>Default Agent</label>
+                        <el-select v-model="settings.default_agent_id" style="width:300px" @change="saveSettings">
+                            <el-option v-for="a in agents" :key="a.name" :label="a.name" :value="a.name"></el-option>
+                        </el-select>
+                        <el-button type="primary" style="background:#000;border-color:#000" @click="saveSettings">Save</el-button>
+                        <el-button @click="resetSettings">Reset</el-button>
+                    </div>
+                </div>
+                <div style="margin-bottom:32px">
+                    <h3 style="font-size:16px;font-weight:600;margin-bottom:16px;padding-bottom:8px;border-bottom:1px solid #e0e0e0">Agents</h3>
+                    <p style="color:#666;font-size:12px;margin-bottom:12px">文件路径: <code>workspace/data/agents/&lt;name&gt;/</code></p>
+                    <p style="color:#666;font-size:12px;margin-bottom:12px">SOUL.md 文件路径: <code>workspace/data/agents/&lt;name&gt;/SOUL.md</code></p>
+                    <div class="toolbar">
+                        <el-button type="primary" style="background:#000;border-color:#000" @click="showAgentDialog()">+ New Agent</el-button>
+                        <el-button @click="loadAgents">Refresh</el-button>
+                    </div>
+                    <el-table :data="agents" stripe style="table-layout:fixed">
+                        <el-table-column prop="name" label="Name" min-width="25%"></el-table-column>
+                        <el-table-column prop="description" label="Description" min-width="25%"></el-table-column>
+                        <el-table-column prop="created_at" label="Created" min-width="25%">
+                            <template #default="{row}">{{ formatTime(row.created_at) }}</template>
+                        </el-table-column>
+                        <el-table-column label="Actions" min-width="25%">
+                            <template #default="{row}">
+                                <el-button-group size="small">
+                                    <el-button @click="showAgentDialog(row)">Edit</el-button>
+                                    <el-button v-if="row.name !== 'main_agent'" @click="deleteAgent(row.name)" type="danger" plain>Delete</el-button>
+                                </el-button-group>
+                            </template>
+                        </el-table-column>
+                    </el-table>
+                    <el-dialog v-model="agentDialogVisible" :title="editingAgent ? 'Edit Agent' : 'New Agent'" width="900px">
+                        <el-form :model="agentForm" label-width="140px">
+                            <el-form-item label="Name"><el-input v-model="agentForm.name" :disabled="!!editingAgent"></el-input></el-form-item>
+                            <el-form-item label="Description"><el-input v-model="agentForm.description"></el-input></el-form-item>
+                            <el-divider content-position="left">LLM Config</el-divider>
+                            <el-form-item label="Provider"><el-input v-model="agentForm.llm.provider" placeholder="moonshot"></el-input></el-form-item>
+                            <el-form-item label="Model"><el-input v-model="agentForm.llm.model" placeholder="kimi-k2.5"></el-input></el-form-item>
+                            <el-form-item label="API Key"><el-input v-model="agentForm.llm.api_key" type="password" show-password placeholder="sk-..."></el-input></el-form-item>
+                            <el-form-item label="Base URL"><el-input v-model="agentForm.llm.base_url" placeholder="https://api.moonshot.cn/v1"></el-input></el-form-item>
+                            <el-form-item label="Multimodal"><el-switch v-model="agentForm.llm.multimodal"></el-switch></el-form-item>
+                            <el-divider content-position="left">Context Config</el-divider>
+                            <el-form-item label="Max Tokens"><el-input-number v-model="agentForm.context.max_tokens" :min="1000" :max="1000000"></el-input-number></el-form-item>
+                            <el-form-item label="Unload Threshold"><el-input-number v-model="agentForm.context.unload_threshold_tokens" :min="1000" :max="1000000"></el-input-number></el-form-item>
+                            <el-divider content-position="left">Personality</el-divider>
+                            <el-form-item label="SOUL.md">
+                                <el-input v-model="agentForm.soul_content" type="textarea" :rows="5"></el-input>
+                            </el-form-item>
+                            <el-form-item label="USER.md">
+                                <el-input v-model="agentForm.user_content" type="textarea" :rows="5"></el-input>
+                            </el-form-item>
+                            <el-form-item label="AGENT.md">
+                                <el-input v-model="agentForm.agent_content" type="textarea" :rows="5"></el-input>
+                            </el-form-item>
+                        </el-form>
+                        <template #footer>
+                            <el-button @click="agentDialogVisible=false">Cancel</el-button>
+                            <el-button type="primary" style="background:#000;border-color:#000" @click="saveAgent">Save</el-button>
+                        </template>
+                    </el-dialog>
+                </div>
+                <div style="margin-bottom:32px">
+                    <h3 style="font-size:16px;font-weight:600;margin-bottom:16px;padding-bottom:8px;border-bottom:1px solid #e0e0e0">Commands</h3>
+                    <p style="color:#666;font-size:12px;margin-bottom:12px"><strong>Without alias setup:</strong> Replace <code>fastclaw</code> with <code>python3 main.py</code> + command. Example: <code>python3 main.py status</code> instead of <code>fastclaw status</code>.</p>
+                    <p style="color:#666;font-size:12px;margin-bottom:12px"><strong>With alias (optional):</strong> Add to <code>~/.bashrc</code> or <code>~/.zshrc</code>:<br><code>alias fastclaw='python3 /path/to/fastclaw/main.py'</code><br>Then run <code>source ~/.bashrc</code> or <code>source ~/.zshrc</code> to apply.</p>
+                    <table class="cmd-table" style="table-layout:fixed;width:100%">
+                        <colgroup><col style="width:50%"><col style="width:50%"></colgroup>
+                        <thead><tr><th style="width:50%">Command</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td><code>fastclaw start</code></td><td>Start web server</td></tr>
+                            <tr><td><code>fastclaw status</code></td><td>View running status</td></tr>
+                            <tr><td><code>fastclaw help</code></td><td>Show help</td></tr>
+                            <tr><td colspan="2" style="background:#f5f5f5;font-weight:500;padding:8px 12px">Chat Commands</td></tr>
+                            <tr><td><code>fastclaw chat</code></td><td>Interactive chat</td></tr>
+                            <tr><td><code>fastclaw chat --new</code></td><td>New session chat</td></tr>
+                            <tr><td><code>fastclaw chat --session-id &lt;id&gt;</code></td><td>Continue session chat</td></tr>
+                            <tr><td colspan="2" style="background:#f5f5f5;font-weight:500;padding:8px 12px">Session Commands</td></tr>
+                            <tr><td><code>fastclaw session list</code></td><td>List all sessions</td></tr>
+                            <tr><td><code>fastclaw session history &lt;id&gt;</code></td><td>View session history</td></tr>
+                            <tr><td><code>fastclaw session clear &lt;id&gt;</code></td><td>Clear session</td></tr>
+                            <tr><td><code>fastclaw session export &lt;id&gt;</code></td><td>Export session</td></tr>
+                            <tr><td colspan="2" style="background:#f5f5f5;font-weight:500;padding:8px 12px">Cron Commands</td></tr>
+                            <tr><td><code>fastclaw cron list</code></td><td>List all cron tasks</td></tr>
+                            <tr><td><code>fastclaw cron add</code></td><td>Add cron task (interactive)</td></tr>
+                            <tr><td><code>fastclaw cron del &lt;name&gt;</code></td><td>Delete cron task</td></tr>
+                            <tr><td><code>fastclaw cron run &lt;name&gt;</code></td><td>Manually run cron task</td></tr>
+                            <tr><td colspan="2" style="background:#f5f5f5;font-weight:500;padding:8px 12px">Skill Commands</td></tr>
+                            <tr><td><code>fastclaw skill list</code></td><td>List all skills</td></tr>
+                            <tr><td><code>fastclaw skill info &lt;name&gt;</code></td><td>View skill details</td></tr>
+                            <tr><td><code>fastclaw skill test &lt;name&gt;</code></td><td>Test skill</td></tr>
+                            <tr><td><code>fastclaw skill install &lt;name&gt;</code></td><td>Install skill</td></tr>
+                            <tr><td><code>fastclaw skill uninstall &lt;name&gt;</code></td><td>Uninstall skill</td></tr>
+                            <tr><td colspan="2" style="background:#f5f5f5;font-weight:500;padding:8px 12px">Agent Commands</td></tr>
+                            <tr><td><code>fastclaw agent list</code></td><td>List all agents</td></tr>
+                            <tr><td><code>fastclaw agent add</code></td><td>Add new agent (interactive)</td></tr>
+                            <tr><td><code>fastclaw agent info &lt;name&gt;</code></td><td>View agent config</td></tr>
+                            <tr><td><code>fastclaw agent edit &lt;name&gt;</code></td><td>Edit agent config</td></tr>
+                            <tr><td><code>fastclaw agent del &lt;name&gt;</code></td><td>Delete agent</td></tr>
+                            <tr><td colspan="2" style="background:#f5f5f5;font-weight:500;padding:8px 12px">Channel Commands</td></tr>
+                            <tr><td><code>fastclaw channel list</code></td><td>List all channels</td></tr>
+                            <tr><td><code>fastclaw channel add &lt;name&gt;</code></td><td>Add channel config</td></tr>
+                            <tr><td><code>fastclaw channel enable &lt;name&gt;</code></td><td>Enable channel</td></tr>
+                            <tr><td><code>fastclaw channel disable &lt;name&gt;</code></td><td>Disable channel</td></tr>
+                            <tr><td><code>fastclaw channel del &lt;name&gt;</code></td><td>Delete channel</td></tr>
+                            <tr><td><code>fastclaw channel status &lt;name&gt;</code></td><td>View channel status</td></tr>
+                            <tr><td colspan="2" style="background:#f5f5f5;font-weight:500;padding:8px 12px">Dev Commands</td></tr>
+                            <tr><td><code>watchgod main</code></td><td>Auto-restart on code change (need watchgod)</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div style="margin-bottom:32px">
+                    <h3 style="font-size:16px;font-weight:600;margin-bottom:16px;padding-bottom:8px;border-bottom:1px solid #e0e0e0">API Endpoints</h3>
+                    <table class="cmd-table" style="table-layout:fixed;width:100%">
+                        <colgroup><col style="width:50%"><col style="width:50%"></colgroup>
+                        <thead><tr><th style="width:50%">Endpoint</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td><code>GET /api/health</code></td><td>Health check</td></tr>
+                            <tr><td><code>GET /api/skills</code></td><td>List skills</td></tr>
+                            <tr><td><code>GET /api/agents</code></td><td>List agents</td></tr>
+                            <tr><td><code>GET /api/sessions</code></td><td>List sessions</td></tr>
+                            <tr><td><code>WS /ws</code></td><td>WebSocket</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div style="margin-bottom:32px">
+                    <h3 style="font-size:16px;font-weight:600;margin-bottom:16px;padding-bottom:8px;border-bottom:1px solid #e0e0e0">Workspace Directory</h3>
+                    <p style="color:#666;font-size:12px;margin-bottom:12px">All configuration and data files are stored in the <code>workspace/</code> directory:</p>
+                    <table class="cmd-table" style="table-layout:fixed;width:100%">
+                        <colgroup><col style="width:50%"><col style="width:50%"></colgroup>
+                        <thead><tr><th style="width:50%">Path</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td colspan="2" style="background:#f5f5f5;font-weight:500;padding:8px 12px">Configuration Files</td></tr>
+                            <tr><td><code>workspace/settings.json</code></td><td>Global settings (default agent, etc.)</td></tr>
+                            <tr><td colspan="2" style="background:#f5f5f5;font-weight:500;padding:8px 12px">Agents</td></tr>
+                            <tr><td><code>workspace/data/agents/</code></td><td>Agent configuration files</td></tr>
+                            <tr><td><code>agents/*/metadata.json</code></td><td>Each agent has its own config file</td></tr>
+                            <tr><td colspan="2" style="background:#f5f5f5;font-weight:500;padding:8px 12px">Skills</td></tr>
+                            <tr><td><code>workspace/skills/</code></td><td>Skill modules directory</td></tr>
+                            <tr><td><code>skills/bundled/</code></td><td>Built-in skills (current_time, feishu, imessage)</td></tr>
+                            <tr><td><code>skills/user/</code></td><td>User-installed skills</td></tr>
+                            <tr><td colspan="2" style="background:#f5f5f5;font-weight:500;padding:8px 12px">Cron Tasks</td></tr>
+                            <tr><td><code>workspace/data/cron/</code></td><td>Cron task data directory</td></tr>
+                            <tr><td><code>data/cron/tasks.json</code></td><td>Cron tasks configuration file</td></tr>
+                            <tr><td colspan="2" style="background:#f5f5f5;font-weight:500;padding:8px 12px">Sessions</td></tr>
+                            <tr><td><code>data/sessions/{id}/</code></td><td>Each session has its own directory</td></tr>
+                            <tr><td><code>data/sessions/{id}/messages.jsonl</code></td><td>Session message log (JSONL format)</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/webui/static/js/vue3.prod.js"></script>
+    <script src="/webui/static/js/element-plus.full.min.js"></script>
+    <script src="/webui/static/js/element-plus-zh-cn.min.js"></script>
+    <script src="/webui/static/js/marked.min.js"></script>
+    <script>
+        const { createApp, ref, computed, nextTick, onMounted, onUnmounted } = Vue;
+        const app = createApp({
+            setup() {
+                const activeTab = ref('chat');
+                const sessions = ref([]);
+                const currentSessionId = ref(null);
+                const messages = ref([]);
+                const chatText = ref('');
+                const isStreaming = ref(false);
+                const searchText = ref('');
+                let ws = null;
+                let pendingAssistantMsg = null;
+
+                const cronTasks = ref([]);
+                const cronDialogVisible = ref(false);
+                const editingCron = ref(null);
+                const cronForm = ref({ name: '', schedule: '', description: '', agent_id: 'main_agent', session_id: '', enabled: true });
+                const agents = ref([]);
+                const settings = ref({ default_agent_id: 'main_agent' });
+                const bindAgentDialogVisible = ref(false);
+                const bindAgentForm = ref({ agent_id: '' });
+                const agentDialogVisible = ref(false);
+                const editingAgent = ref(null);
+                const agentForm = ref({ name: '', description: '', soul_content: '', user_content: '', agent_content: '', llm: {}, context: {} });
+
+                const filteredSessions = computed(() => {
+                    let result = sessions.value;
+                    if (!searchText.value) {
+                        result = [...sessions.value];
+                    } else {
+                        const q = searchText.value.toLowerCase();
+                        result = sessions.value.filter(s => (s.name || s.session_id).toLowerCase().includes(q));
+                    }
+                    return result.sort((a, b) => (b.last_active_time || 0) - (a.last_active_time || 0));
+                });
+
+                const currentSessionName = computed(() => {
+                    const s = sessions.value.find(x => x.session_id === currentSessionId.value);
+                    return s ? (s.name || s.session_id) : '';
+                });
+
+                function formatTime(ts) {
+                    if (!ts) return '';
+                    const d = new Date(ts * 1000);
+                    if (isNaN(d.getTime())) return '';
+                    const diff = Date.now() - d.getTime();
+                    if (diff < 60000) return 'Just now';
+                    if (diff < 3600000) return Math.floor(diff / 60000) + 'm ago';
+                    if (diff < 86400000) return Math.floor(diff / 3600000) + 'h ago';
+                    return d.toLocaleDateString();
+                }
+
+                function getMsgContent(msg) {
+                    if (msg.role === 'assistant' && msg.content && typeof marked !== 'undefined') {
+                        return marked.parse(msg.content);
+                    }
+                    if (msg.role === 'tool') {
+                        const content = msg.content || '';
+                        const match = content.match(/^\[(run_shell|run_skills)\]:\s*(.*)/s);
+                        if (match) {
+                            const toolName = match[1];
+                            const toolResult = match[2];
+                            return `<div class="tool-output-container"><div class="tool-output-header">[${toolName}]:</div><pre class="tool-output-content">${escapeHtml(toolResult)}</pre></div>`;
+                        }
+                        return `<div class="tool-output-container"><pre class="tool-output-content">${escapeHtml(content)}</pre></div>`;
+                    }
+                    return msg.content || '';
+                }
+
+                function escapeHtml(text) {
+                    const div = document.createElement('div');
+                    div.textContent = text;
+                    return div.innerHTML;
+                }
+
+                async function loadSessions() {
+                    try {
+                        const r = await fetch('/api/sessions');
+                        sessions.value = await r.json();
+                        if (!currentSessionId.value && sessions.value.length > 0) {
+                            selectLatestSession();
+                        }
+                    } catch (e) { console.error('loadSessions error', e); }
+                }
+
+                async function createSession() {
+                    try {
+                        const r = await fetch('/api/sessions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+                        const s = await r.json();
+                        sessions.value.unshift(s);
+                        selectSession(s.session_id);
+                    } catch (e) { console.error('createSession error', e); }
+                }
+
+                async function selectSession(id) {
+                    if (currentSessionId.value === id) return;
+                    disconnect();
+                    currentSessionId.value = id;
+                    messages.value = [];
+                    try {
+                        const r = await fetch(`/api/sessions/${id}/messages`);
+                        const loadedMessages = await r.json();
+                        messages.value = loadedMessages.map(msg => {
+                            if (msg.reasoning_content && !msg.thinking) {
+                                return { ...msg, thinking: msg.reasoning_content };
+                            }
+                            return msg;
+                        });
+                    } catch (e) {}
+                    connect(id);
+                    await nextTick();
+                    scrollBottom();
+                }
+
+                function scrollBottom() {
+                    const el = document.querySelector('.chat-messages');
+                    if (el) el.scrollTop = el.scrollHeight;
+                }
+
+                function connect(sessionId) {
+                    disconnect();
+                    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+                    ws = new WebSocket(`${proto}//${location.host}/ws?session_id=${sessionId}`);
+                    pendingAssistantMsg = null;
+                    
+                    function handleMessage(data) {
+                        if (data.type === 'stream.chunk') {
+                            const delta = data.payload.delta;
+                            if (pendingAssistantMsg) {
+                                pendingAssistantMsg.content += delta;
+                            } else {
+                                const last = messages.value[messages.value.length - 1];
+                                if (last && last.role === 'assistant' && !last.tool_calls && !last._isStreaming) {
+                                    last.content += delta;
+                                } else {
+                                    messages.value.push({ role: 'assistant', content: delta, _isStreaming: true });
+                                    pendingAssistantMsg = messages.value[messages.value.length - 1];
+                                }
+                            }
+                            requestAnimationFrame(() => scrollBottom());
+                        } else if (data.type === 'stream.tool_start') {
+                            pendingAssistantMsg = null;
+                            const last = messages.value[messages.value.length - 1];
+                            const toolInfo = data.payload.tool_info || '';
+                            if (last && last.role === 'assistant' && !last.tool_calls && last._isStreaming) {
+                                last.content += '<br>' + toolInfo;
+                                last.tool_calls = data.payload.tool_calls || null;
+                                last._isStreaming = false;
+                            } else {
+                                messages.value.push({ role: 'assistant', content: toolInfo, tool_calls: data.payload.tool_calls || null, _isStreaming: true });
+                                pendingAssistantMsg = messages.value[messages.value.length - 1];
+                            }
+                            isStreaming.value = true;
+                            nextTick(scrollBottom());
+                        } else if (data.type === 'stream.thinking') {
+                            const delta = data.payload.delta;
+                            if (pendingAssistantMsg) {
+                                pendingAssistantMsg.thinking = (pendingAssistantMsg.thinking || '') + delta;
+                            } else {
+                                const last = messages.value[messages.value.length - 1];
+                                if (last && last.role === 'assistant' && !last.tool_calls && !last._isStreaming) {
+                                    last.thinking = (last.thinking || '') + delta;
+                                } else {
+                                    messages.value.push({ role: 'assistant', content: '', thinking: delta, _isStreaming: true });
+                                    pendingAssistantMsg = messages.value[messages.value.length - 1];
+                                }
+                            }
+                            requestAnimationFrame(() => scrollBottom());
+                        } else if (data.type === 'stream.end') {
+                            isStreaming.value = false;
+                            pendingAssistantMsg = null;
+                            messages.value.forEach(m => m._isStreaming = false);
+                        } else if (data.type === 'stream.error') {
+                            isStreaming.value = false;
+                            pendingAssistantMsg = null;
+                            messages.value.forEach(m => m._isStreaming = false);
+                            messages.value.push({ role: 'assistant', content: 'Error: ' + data.payload.error });
+                        }
+                    }
+                    
+                    ws.onmessage = (e) => {
+                        try {
+                            const data = JSON.parse(e.data);
+                            handleMessage(data);
+                        } catch (err) {
+                            console.error('WebSocket message parse error:', err);
+                        }
+                    };
+                    ws.onclose = () => { 
+                        isStreaming.value = false;
+                        pendingAssistantMsg = null;
+                    };
+                    ws.onerror = (e) => {
+                        console.error('WebSocket error:', e);
+                        isStreaming.value = false;
+                    };
+                    ws.onopen = () => {
+                        console.log('WebSocket connected');
+                    };
+                }
+
+                function disconnect() {
+                    if (ws) { ws.close(); ws = null; }
+                    isStreaming.value = false;
+                    pendingAssistantMsg = null;
+                    messages.value.forEach(m => m._isStreaming = false);
+                }
+
+                async function sendMessage() {
+                    const text = chatText.value.trim();
+                    if (!text || !currentSessionId.value) return;
+                    if (isStreaming.value) {
+                        isStreaming.value = false;
+                    }
+                    chatText.value = '';
+                    messages.value.push({ role: 'user', content: text });
+                    
+                    // Ensure WebSocket is connected before sending
+                    if (!ws || ws.readyState !== WebSocket.OPEN) {
+                        await new Promise((resolve) => {
+                            connect(currentSessionId.value);
+                            // Wait for connection to be established
+                            const checkOpen = setInterval(() => {
+                                if (ws && ws.readyState === WebSocket.OPEN) {
+                                    clearInterval(checkOpen);
+                                    resolve();
+                                }
+                            }, 50);
+                            // Timeout after 5 seconds
+                            setTimeout(() => {
+                                clearInterval(checkOpen);
+                                resolve();
+                            }, 5000);
+                        });
+                    }
+                    
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({ type: 'user.message', payload: { text }, session_id: currentSessionId.value }));
+                    } else {
+                        console.error('WebSocket not open, message not sent');
+                    }
+                    await nextTick(scrollBottom);
+                }
+
+                async function clearSession() {
+                    if (!currentSessionId.value) return;
+                    messages.value = [];
+                    await fetch(`/api/sessions/${currentSessionId.value}/messages`, { method: 'DELETE' });
+                }
+
+                async function deleteSession() {
+                    if (!currentSessionId.value) return;
+                    await fetch(`/api/sessions/${currentSessionId.value}`, { method: 'DELETE' });
+                    sessions.value = sessions.value.filter(s => s.session_id !== currentSessionId.value);
+                    currentSessionId.value = null;
+                    messages.value = [];
+                    disconnect();
+                }
+
+                async function loadCronTasks() {
+                    try {
+                        const r = await fetch('/api/crons');
+                        cronTasks.value = (await r.json()).tasks || [];
+                    } catch (e) { console.error(e); }
+                }
+
+                function showCronDialog(task = null) {
+                    if (task) {
+                        editingCron.value = task;
+                        cronForm.value = { ...task };
+                    } else {
+                        editingCron.value = null;
+                        cronForm.value = { name: '', schedule: '', description: '', agent_id: 'main_agent', session_id: '', enabled: true };
+                    }
+                    cronDialogVisible.value = true;
+                }
+
+                async function saveCron() {
+                    const t = { ...cronForm.value };
+                    if (!t.id) t.id = 'task_' + Date.now();
+                    await fetch('/api/crons', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(t) });
+                    cronDialogVisible.value = false;
+                    loadCronTasks();
+                }
+
+                async function deleteCron(id) {
+                    await fetch(`/api/crons/${id}`, { method: 'DELETE' });
+                    loadCronTasks();
+                }
+
+                async function toggleCron(task) {
+                    task.enabled = !task.enabled;
+                    await fetch('/api/crons', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(task) });
+                    loadCronTasks();
+                }
+
+                async function triggerCron(task) {
+                    try {
+                        await fetch('/api/crons/trigger', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ task_id: task.id }) });
+                        ElementPlus.ElMessage.success('Triggered');
+                    } catch (e) { ElementPlus.ElMessage.error('Failed'); }
+                }
+
+                async function loadAgents() {
+                    try {
+                        const r = await fetch('/api/agents');
+                        agents.value = (await r.json()).agents || [];
+                    } catch (e) { console.error(e); }
+                }
+
+                async function showAgentDialog(agent = null) {
+                    if (agent) {
+                        editingAgent.value = agent;
+                        const r = await fetch(`/api/agents/${agent.name}`);
+                        const data = await r.json();
+                        agentForm.value = {
+                            name: data.name,
+                            description: data.description || '',
+                            soul_content: data.soul_content || '',
+                            user_content: data.user_content || '',
+                            agent_content: data.agent_content || '',
+                            llm: data.llm || {},
+                            context: data.context || {}
+                        };
+                    } else {
+                        editingAgent.value = null;
+                        const mainAgent = agents.value.find(a => a.name === 'main_agent') || agents.value[0];
+                        if (mainAgent) {
+                            const r = await fetch(`/api/agents/${mainAgent.name}`);
+                            const data = await r.json();
+                            agentForm.value = {
+                                name: '',
+                                description: data.description || '',
+                                soul_content: data.soul_content || '',
+                                user_content: data.user_content || '',
+                                agent_content: data.agent_content || '',
+                                llm: JSON.parse(JSON.stringify(data.llm || {})),
+                                context: JSON.parse(JSON.stringify(data.context || {}))
+                            };
+                        } else {
+                            agentForm.value = { name: '', description: '', soul_content: '', user_content: '', agent_content: '', llm: {}, context: {} };
+                        }
+                    }
+                    agentDialogVisible.value = true;
+                }
+
+                async function saveAgent() {
+                    const t = { ...agentForm.value };
+                    if (editingAgent.value) {
+                        await fetch(`/api/agents/${editingAgent.value.name}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(t) });
+                    } else {
+                        await fetch('/api/agents', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(t) });
+                    }
+                    agentDialogVisible.value = false;
+                    loadAgents();
+                }
+
+                async function deleteAgent(name) {
+                    if (name === 'main_agent') {
+                        ElementPlus.ElMessage.error('Cannot delete main_agent');
+                        return;
+                    }
+                    if (!confirm(`Delete agent '${name}'?`)) return;
+                    await fetch(`/api/agents/${name}`, { method: 'DELETE' });
+                    loadAgents();
+                }
+
+                async function loadSettings() {
+                    try {
+                        const r = await fetch('/api/settings');
+                        settings.value = await r.json();
+                    } catch (e) { console.error(e); }
+                }
+
+                async function saveSettings() {
+                    await fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(settings.value) });
+                    ElementPlus.ElMessage.success('Settings saved');
+                }
+
+                function resetSettings() {
+                    settings.value = { default_agent_id: 'main_agent' };
+                    saveSettings();
+                }
+
+                function onTabChange(tab) {
+                    if (tab === 'cron') { loadCronTasks(); loadAgents(); }
+                    if (tab === 'settings') { loadSettings(); loadAgents(); }
+                    if (tab === 'chat') {
+                        loadSessions().then(() => {
+                            if (currentSessionId.value) {
+                                connect(currentSessionId.value);
+                            } else {
+                                selectLatestSession();
+                            }
+                        });
+                    }
+                }
+
+                function showBindAgentDialog() {
+                    const session = sessions.value.find(s => s.session_id === currentSessionId.value);
+                    bindAgentForm.value = { agent_id: session?.agent_id || '' };
+                    bindAgentDialogVisible.value = true;
+                }
+
+                async function bindAgent() {
+                    if (!currentSessionId.value) return;
+                    await fetch(`/api/sessions/${currentSessionId.value}`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ agent_id: bindAgentForm.value.agent_id })
+                    });
+                    bindAgentDialogVisible.value = false;
+                }
+
+                onMounted(() => {
+                    loadSessions();
+                    loadAgents();
+                });
+
+                function selectLatestSession() {
+                    if (sessions.value.length > 0) {
+                        const sorted = [...sessions.value].sort((a, b) => (b.last_active_time || 0) - (a.last_active_time || 0));
+                        selectSession(sorted[0].session_id);
+                    }
+                }
+
+                onUnmounted(() => { disconnect(); });
+
+                return {
+                    activeTab, sessions, currentSessionId, currentSessionName, messages, chatText,
+                    isStreaming, searchText, filteredSessions,
+                    cronTasks, cronDialogVisible, editingCron, cronForm, agents, settings,
+                    bindAgentDialogVisible, bindAgentForm,
+                    agentDialogVisible, editingAgent, agentForm,
+                    formatTime, getMsgContent, loadSessions, createSession, selectSession, selectLatestSession, sendMessage, clearSession, deleteSession,
+                    loadCronTasks, showCronDialog, saveCron, deleteCron, toggleCron, triggerCron,
+                    loadAgents, loadSettings, saveSettings, resetSettings, onTabChange,
+                    showBindAgentDialog, bindAgent, showAgentDialog, saveAgent, deleteAgent
+                };
+            }
+        });
+        app.use(window.ElementPlus, { locale: window.ElementPlusLocaleZhCn });
+        app.mount('#app');
+    </script>
+</body>
+</html>

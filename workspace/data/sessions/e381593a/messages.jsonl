@@ -1,0 +1,4 @@
+{"role": "user", "content": "现在几点"}
+{"role": "assistant", "content": "", "reasoning_content": "用户询问当前时间，我可以使用 run_skills 工具中的 current_time 技能来获取当前时间。", "tool_calls": [{"id": "run_skills:0", "type": "function", "function": {"name": "run_skills", "arguments": "{\"skill_name\":\"current_time\"}"}}]}
+{"role": "tool", "tool_call_id": "run_skills:0", "content": "[run_skills]: 2026-03-27 20:35:45"}
+{"role": "assistant", "content": "现在是 2026年3月27日 20:35:45", "reasoning_content": "工具返回了当前时间：2026-03-27 20:35:45。我需要用自然语言回复用户当前时间。"}

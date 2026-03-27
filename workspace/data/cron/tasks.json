@@ -1,0 +1,11 @@
+[
+  {
+    "name": "\u6bcf\u59299\u70b9\u7ed9\u6211\u4e00\u4e2a\u95ee\u597d",
+    "schedule": "0 9 * * *",
+    "description": "\u7ed9\u6211\u4e00\u4e2a\u95ee\u597d\uff0c\u544a\u8bc9\u6211\u4eca\u5929\u4fdd\u6301\u597d\u5fc3\u60c5\u7684\u65b9\u6cd5",
+    "agent_id": "main_agent",
+    "session_id": "08fc753b",
+    "enabled": true,
+    "id": "task_1774526900401"
+  }
+]

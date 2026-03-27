@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test</title>
+</head>
+<body>
+    <div id="app">{{ message }}</div>
+    <script src="/webui/static/js/vue3.prod.js"></script>
+    <script>
+        console.log('Vue:', typeof Vue);
+        console.log('ElementPlus:', typeof window.ElementPlus);
+        console.log('ElementPlusLocaleZhCn:', typeof window.ElementPlusLocaleZhCn);
+        if (typeof Vue !== 'undefined') {
+            const app = Vue.createApp({
+                data() {
+                    return { message: 'Hello Vue!' }
+                }
+            });
+            app.mount('#app');
+        }
+    </script>
+</body>
+</html>

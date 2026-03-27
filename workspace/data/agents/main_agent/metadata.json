@@ -1,0 +1,17 @@
+{
+  "name": "main_agent",
+  "description": "FastClaw 主智能体",
+  "llm": {
+    "gateway": "openai",
+    "provider": "moonshot",
+    "model": "kimi-k2.5",
+    "api_key": "your-api-key",
+    "base_url": "https://api.moonshot.cn/v1",
+    "multimodal": true
+  },
+  "context": {
+    "max_tokens": 80000,
+    "unload_threshold_tokens": 80000
+  },
+  "extra_workspaces": []
+}

@@ -1,0 +1,6 @@
+{"role": "user", "content": "你好"}
+{"role": "assistant", "content": "你好！我是 FastClaw，一个自主智能助手。我可以帮你执行各种任务，比如运行 Shell 命令、使用预定义技能等。\n\n有什么我可以帮你的吗？"}
+{"role": "user", "content": "查看一下当前时间"}
+{"role": "assistant", "content": "我来查看当前时间。\n[执行工具: run_skills({\"skill_name\": \"current_time\"})]", "tool_calls": [{"id": "call_00_64ywRISzy2HCdMqoFWVCjzRV", "type": "function", "function": {"name": "run_skills", "arguments": "{\"skill_name\": \"current_time\"}"}}]}
+{"role": "tool", "tool_call_id": "call_00_64ywRISzy2HCdMqoFWVCjzRV", "content": "[run_skills]: 2026-03-27 12:36:23"}
+{"role": "assistant", "content": "当前时间是：2026年3月27日 12:36:23"}
