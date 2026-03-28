@@ -16,6 +16,7 @@
         .ws-dot { width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
         .ws-dot.connected { background: #4CAF50; }
         .ws-dot.disconnected { background: #f56c6c; }
+        .ws-dot.connecting { background: #E6A23C; }
         .main { flex: 1; overflow: hidden; display: flex; }
         .chat-layout { flex: 1; display: flex; overflow: hidden; }
         .sidebar { width: 260px; border-right: 1px solid #e0e0e0; background: #fafafa; display: flex; flex-direction: column; }
@@ -76,10 +77,10 @@
         <div class="header">
             <span class="header-title">FastClaw</span>
             <div class="ws-status">
-                <span class="ws-dot" :class="wsConnected ? 'connected' : 'disconnected'"></span>
-                <span>{{ wsConnected ? 'Connected' : 'Disconnected' }}</span>
+                <span class="ws-dot" :class="wsConnected === true ? 'connected' : (wsConnected === false ? 'disconnected' : 'connecting')"></span>
+                <span>{{ wsConnected === true ? 'Connected' : (wsConnected === false ? 'Disconnected' : 'Connecting...') }}</span>
             </div>
-            <el-button size="small" circle style="margin-right:8px;padding:8px" @click="() => location.reload()" title="Refresh Page">
+            <el-button size="small" circle style="margin-right:8px;padding:8px" @click="reconnect" title="Reconnect to Server">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
             </el-button>
             <el-tabs v-model="activeTab" @tab-change="onTabChange" class="header-tabs">
@@ -379,7 +380,7 @@
                 const messages = ref([]);
                 const chatText = ref('');
                 const isStreaming = ref(false);
-                const wsConnected = ref(false);
+                const wsConnected = ref(null);
                 const searchText = ref('');
                 let ws = null;
                 let pendingAssistantMsg = null;
@@ -581,6 +582,38 @@
                     wsConnected.value = false;
                     pendingAssistantMsg = null;
                     messages.value.forEach(m => m._isStreaming = false);
+                }
+
+                let reconnectTimer = null;
+                function reconnect() {
+                    if (reconnectTimer) clearInterval(reconnectTimer);
+                    wsConnected.value = null;
+                    if (currentSessionId.value) {
+                        disconnect();
+                        let retries = 0;
+                        const maxRetries = 15;
+                        function tryConnect() {
+                            if (wsConnected.value === true) return;
+                            disconnect();
+                            connect(currentSessionId.value);
+                            retries++;
+                        }
+                        tryConnect();
+                        reconnectTimer = setInterval(() => {
+                            if (wsConnected.value === true) {
+                                clearInterval(reconnectTimer);
+                                reconnectTimer = null;
+                            } else if (retries < maxRetries) {
+                                tryConnect();
+                            } else {
+                                clearInterval(reconnectTimer);
+                                reconnectTimer = null;
+                                wsConnected.value = false;
+                            }
+                        }, 2000);
+                    } else {
+                        loadSessions();
+                    }
                 }
 
                 async function sendMessage() {
