@@ -31,15 +31,16 @@ nohup python main.py start > fastclaw.log 2>&1 &
 ```
 
 ### Agent Configuration
-
 ```bash
-vim workspace/data/agents/main_agent/metadata.json
+vim workspace/data/agents/main_agent/metadata.json 
 # Edit the file to configure your LLM provider and API key
 # Currently supports OpenAI gateway models (DeepSeek, OpenAI, etc.), recommended: deepseek-chat
 # Default agent is main_agent. To switch, modify workspace/data/settings.json
 ```
 
 Access at http://localhost:8765
+You can also select agents and enter API keys in the Settings page.
+API key must be provided for the agent to work properly.
 
 ### CLI Usage
 
@@ -56,7 +57,7 @@ python main.py status
 
 ## Features
 
-- 🤖 **LLM-powered** - Built on FastMind framework with streaming support
+- 🤖 **LLM-powered** - Built on  [FastMind](https://github.com/kandada/fastmind)  framework with streaming support
 - 🔧 **Tool Calling** - Execute Shell commands, skills, and more
 - ⏰ **Cron Jobs** - Schedule tasks with cron expressions
 - 💬 **Multi-channel** - Feishu, iMessage integrations
@@ -71,8 +72,9 @@ GPL-3.0
 Inspired by [OpenClaw](https://github.com/openclaw/openclaw). Special thanks to the open source community.
 
 ---
+
 FastClaw is powerful, but its use depends entirely on the user - all responsibility lies with the user yourself.
 
 ---
 
-Author: [xiefujin](https://github.com/kandada)
+Author：[xiefujin](https://github.com/kandada) email: 490021684@qq.com，welcome to contact me.
