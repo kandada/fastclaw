@@ -60,12 +60,19 @@ def save_sessions(sessions: dict):
     SESSION_DB_FILE.write_text(json.dumps(sessions, indent=2, ensure_ascii=False))
 
 
-def update_session_activity(session_id: str):
-    """更新 session 的最后活跃时间"""
+def _update_session_activity_sync(session_id: str):
+    """同步更新 session 的最后活跃时间"""
     sessions = load_sessions()
     if session_id in sessions:
         sessions[session_id]["last_active_time"] = int(time.time())
         save_sessions(sessions)
+
+
+def update_session_activity(session_id: str):
+    """更新 session 的最后活跃时间"""
+    asyncio.get_event_loop().run_in_executor(
+        None, _update_session_activity_sync, session_id
+    )
 
 
 @router.get("/api/health")
