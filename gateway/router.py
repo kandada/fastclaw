@@ -4,6 +4,7 @@
 import asyncio
 import json
 import shutil
+import socket
 import time
 from pathlib import Path
 from typing import Optional
@@ -582,6 +583,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str = None):
                                 "session_id": event.session_id,
                             }
                         )
+                        await asyncio.sleep(0)
                         continue
 
                     data = {
@@ -590,6 +592,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str = None):
                         "session_id": event.session_id,
                     }
                     await websocket.send_json(data)
+                    await asyncio.sleep(0)
                     if event.type in ("stream.end", "error"):
                         consumer_task = None
                         break

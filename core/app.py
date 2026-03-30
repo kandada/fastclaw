@@ -396,13 +396,19 @@ async def run_shell(command: str, state: dict = None) -> str:
         return f"Permission denied: {reason}"
 
     try:
-        result = subprocess.run(
-            command, shell=True, capture_output=True, text=True, timeout=30
+        process = await asyncio.create_subprocess_shell(
+            command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
-        output = result.stdout or result.stderr
-        return output[:5000]
-    except subprocess.TimeoutExpired:
-        return "Error: Command timed out (30s)"
+        try:
+            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=30)
+            output = (stdout or stderr).decode()
+            return output[:5000]
+        except asyncio.TimeoutError:
+            process.kill()
+            await process.wait()
+            return "Error: Command timed out (30s)"
     except Exception as e:
         return f"Error: {str(e)}"
 
