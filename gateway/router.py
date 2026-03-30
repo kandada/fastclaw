@@ -25,6 +25,7 @@ class SessionCreate(BaseModel):
 
 class SessionUpdate(BaseModel):
     agent_id: Optional[str] = None
+    name: Optional[str] = None
 
 
 def ensure_sessions_db():
@@ -46,7 +47,7 @@ def load_sessions() -> dict:
 def save_sessions(sessions: dict):
     """保存 sessions"""
     ensure_sessions_db()
-    SESSION_DB_FILE.write_text(json.dumps(sessions, indent=2))
+    SESSION_DB_FILE.write_text(json.dumps(sessions, indent=2, ensure_ascii=False))
 
 
 def update_session_activity(session_id: str):
@@ -368,6 +369,8 @@ async def update_session(session_id: str, data: SessionUpdate):
 
     if data.agent_id:
         sessions[session_id]["agent_id"] = data.agent_id
+    if data.name is not None:
+        sessions[session_id]["name"] = data.name
 
     save_sessions(sessions)
     return sessions[session_id]

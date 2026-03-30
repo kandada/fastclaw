@@ -31,8 +31,8 @@
         .chat-messages { flex: 1; overflow-y: auto; padding: 20px; }
         .message { margin-bottom: 16px; display: flex; flex-direction: column; }
         .message-user { align-items: flex-end; }
-        .message-assistant { align-items: flex-start; width: 100%; }
-        .msg-content { border-radius: 12px; font-size: 14px; line-height: 1.5; word-break: break-word; text-align: left; display: block; }
+        .message-assistant { align-items: flex-start; }
+        .msg-content { border-radius: 12px; font-size: 14px; line-height: 1.5; word-break: break-word; text-align: left; display: block; overflow-x: hidden; }
         .message-user .msg-content { background: #000; color: #fff; padding: 10px 14px; }
         .tool-badge { font-size: 12px; color: #666; margin-top: 4px; }
         .chat-input-area { padding: 16px 20px; border-top: 1px solid #e0e0e0; }
@@ -62,14 +62,25 @@
         .msg-content li { margin: 4px 0; }
         .msg-content strong { font-weight: 600; }
         .msg-content code { background: #e8e8e8; padding: 2px 6px; border-radius: 3px; font-family: monospace; font-size: 12px; }
-        .msg-content pre { background: #e8e8e8; padding: 10px; border-radius: 6px; overflow-x: auto; margin: 8px 0; }
-        .msg-content pre code { background: none; padding: 0; }
+        .msg-content pre { background: #e8e8e8; padding: 10px; border-radius: 6px; overflow-x: auto; margin: 8px 0; max-width: 100%; box-sizing: border-box; width: 100%; white-space: pre-wrap; word-break: break-word; }
+        .msg-content pre code { background: none; padding: 0; width: 100%; max-width: 100%; box-sizing: border-box; display: block; }
         .msg-content blockquote { border-left: 3px solid #ccc; padding-left: 10px; margin: 8px 0; color: #666; }
         .thinking-content { color: #999; font-size: 13px; margin-bottom: 8px; white-space: pre-wrap; word-break: break-word; text-align: left; }
         .tool-content { color: #999; font-size: 13px; margin-bottom: 8px; white-space: pre-wrap; word-break: break-word; text-align: left; }
         .tool-output-container { background: #f8f8f8; border-left: 3px solid #999; border-radius: 4px; padding: 6px 12px; margin: 4px 0; }
         .tool-output-header { color: #666; font-size: 12px; font-weight: 500; margin-bottom: 4px; }
         .tool-output-content { margin: 0; white-space: pre-wrap; word-break: break-word; font-size: 13px; color: #333; }
+        .message-actions { opacity: 0; transition: opacity 0.2s; margin-top: 4px; display: flex; justify-content: flex-start; }
+        .message:hover .message-actions { opacity: 0.5; }
+        .message-actions:hover { opacity: 1 !important; }
+        .msg-copy-btn { background: none; border: none; cursor: pointer; color: #999; padding: 0; line-height: 1; }
+        .msg-copy-btn:hover { color: #666; }
+        .msg-copy-btn svg { width: 14px; height: 14px; }
+        .code-block-wrapper { position: relative; display: inline-block; width: 100%; }
+        .code-copy-btn { position: absolute; top: 4px; right: 4px; background: none; border: none; cursor: pointer; color: #999; padding: 4px; opacity: 0; transition: opacity 0.2s; }
+        .code-block-wrapper:hover .code-copy-btn { opacity: 0.6; }
+        .code-copy-btn:hover { opacity: 1 !important; }
+        .code-copy-btn svg { width: 14px; height: 14px; display: block; }
     </style>
 </head>
 <body>
@@ -110,6 +121,7 @@
                         <div class="chat-header">
                             <span>session_id : {{ currentSessionId }}</span>
                             <el-button-group size="small">
+                                <el-button @click="showRenameDialog">Rename</el-button>
                                 <el-button @click="showBindAgentDialog">Bind Agent</el-button>
                                 <el-button @click="clearSession">Clear</el-button>
                                 <el-button @click="deleteSession">Delete</el-button>
@@ -128,10 +140,26 @@
                                 <el-button type="primary" style="background:#000;border-color:#000" @click="bindAgent">Save</el-button>
                             </template>
                         </el-dialog>
+                        <el-dialog v-model="renameDialogVisible" title="Rename Session" width="400px">
+                            <el-form :model="renameForm" label-width="100px">
+                                <el-form-item label="Name">
+                                    <el-input v-model="renameForm.name" placeholder="Session name"></el-input>
+                                </el-form-item>
+                            </el-form>
+                            <template #footer>
+                                <el-button @click="renameDialogVisible=false">Cancel</el-button>
+                                <el-button type="primary" style="background:#000;border-color:#000" @click="renameSession">Save</el-button>
+                            </template>
+                        </el-dialog>
                         <div class="chat-messages" ref="msgContainer">
                             <div v-for="(msg, i) in messages" :key="i" class="message" :class="'message-' + msg.role">
                                 <div v-if="msg.thinking" class="thinking-content">[思考中...] {{ msg.thinking }}</div>
                                 <div class="msg-content" v-html="getMsgContent(msg)"></div>
+                                <div v-if="msg.role === 'assistant'" class="message-actions">
+                                    <button class="msg-copy-btn" @click="copyMessage(msg.content)" title="复制">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                                    </button>
+                                </div>
                             </div>
                             <div v-if="isStreaming" class="message message-assistant">
                                 <div class="msg-content">
@@ -371,6 +399,20 @@
     <script src="/webui/static/js/element-plus-zh-cn.min.js"></script>
     <script src="/webui/static/js/marked.min.js"></script>
     <script>
+        function copyCodeBlock(btn) {
+            const wrapper = btn.closest('.code-block-wrapper');
+            const code = wrapper.querySelector('code');
+            if (code) {
+                navigator.clipboard.writeText(code.textContent).then(() => {
+                    const originalHtml = btn.innerHTML;
+                    btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+                    btn.title = '已复制';
+                    setTimeout(() => { btn.innerHTML = originalHtml; btn.title = '复制代码'; }, 1500);
+                });
+            }
+        }
+    </script>
+    <script>
         const { createApp, ref, computed, nextTick, onMounted, onUnmounted } = Vue;
         const app = createApp({
             setup() {
@@ -393,6 +435,8 @@
                 const settings = ref({ default_agent_id: 'main_agent' });
                 const bindAgentDialogVisible = ref(false);
                 const bindAgentForm = ref({ agent_id: '' });
+                const renameDialogVisible = ref(false);
+                const renameForm = ref({ name: '' });
                 const agentDialogVisible = ref(false);
                 const editingAgent = ref(null);
                 const agentForm = ref({ name: '', description: '', soul_content: '', user_content: '', agent_content: '', llm: {}, context: {} });
@@ -425,8 +469,14 @@
                 }
 
                 function getMsgContent(msg) {
-                    if (msg.role === 'assistant' && msg.content && typeof marked !== 'undefined') {
-                        return marked.parse(msg.content);
+                    if (msg.role === 'assistant' && msg.content) {
+                        let html = msg.content;
+                        if (typeof marked !== 'undefined') {
+                            html = marked.parse(msg.content);
+                        }
+                        html = html.replace(/<pre><code/g, '<div class="code-block-wrapper"><pre><code');
+                        html = html.replace(/<\/code><\/pre>/g, '</code></pre><button class="code-copy-btn" onclick="copyCodeBlock(this)" title="复制代码"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button></div>');
+                        return html;
                     }
                     if (msg.role === 'tool') {
                         const content = msg.content || '';
@@ -445,6 +495,13 @@
                     const div = document.createElement('div');
                     div.textContent = text;
                     return div.innerHTML;
+                }
+
+                function copyMessage(content) {
+                    if (!content) return;
+                    navigator.clipboard.writeText(content).then(() => {
+                        ElementPlus.ElMessage.success('已复制');
+                    });
                 }
 
                 async function loadSessions() {
@@ -624,6 +681,7 @@
                     }
                     chatText.value = '';
                     messages.value.push({ role: 'user', content: text });
+                    isStreaming.value = true;
                     
                     // Ensure WebSocket is connected before sending
                     if (!ws || ws.readyState !== WebSocket.OPEN) {
@@ -812,6 +870,23 @@
                     bindAgentDialogVisible.value = true;
                 }
 
+                function showRenameDialog() {
+                    const session = sessions.value.find(s => s.session_id === currentSessionId.value);
+                    renameForm.value = { name: session?.name || '' };
+                    renameDialogVisible.value = true;
+                }
+
+                async function renameSession() {
+                    if (!currentSessionId.value) return;
+                    await fetch(`/api/sessions/${currentSessionId.value}`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ name: renameForm.value.name })
+                    });
+                    renameDialogVisible.value = false;
+                    await loadSessions();
+                }
+
                 async function bindAgent() {
                     if (!currentSessionId.value) return;
                     await fetch(`/api/sessions/${currentSessionId.value}`, {
@@ -841,11 +916,13 @@
                     isStreaming, wsConnected, searchText, filteredSessions,
                     cronTasks, cronDialogVisible, editingCron, cronForm, agents, settings,
                     bindAgentDialogVisible, bindAgentForm,
+                    renameDialogVisible, renameForm,
                     agentDialogVisible, editingAgent, agentForm,
                     formatTime, getMsgContent, loadSessions, createSession, selectSession, selectLatestSession, sendMessage, clearSession, deleteSession,
                     loadCronTasks, showCronDialog, saveCron, deleteCron, toggleCron, triggerCron,
                     loadAgents, loadSettings, saveSettings, resetSettings, onTabChange,
-                    showBindAgentDialog, bindAgent, showAgentDialog, saveAgent, deleteAgent
+                    showBindAgentDialog, bindAgent, showRenameDialog, renameSession, showAgentDialog, saveAgent, deleteAgent,
+                    copyMessage
                 };
             }
         });
