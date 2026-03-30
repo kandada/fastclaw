@@ -44,6 +44,16 @@ def load_sessions() -> dict:
         return {}
 
 
+def load_settings() -> dict:
+    """加载设置"""
+    if SETTINGS_FILE.exists():
+        try:
+            return json.loads(SETTINGS_FILE.read_text())
+        except:
+            pass
+    return {"default_agent_id": "main_agent"}
+
+
 def save_sessions(sessions: dict):
     """保存 sessions"""
     ensure_sessions_db()
@@ -332,9 +342,13 @@ async def create_session(data: SessionCreate = None):
 
     session_id = str(uuid.uuid4())[:8]
 
+    settings = load_settings()
+    default_agent_id = settings.get("default_agent_id", "main_agent")
+    agent_id = data.agent_id if data and data.agent_id else default_agent_id
+
     sessions[session_id] = {
         "session_id": session_id,
-        "agent_id": data.agent_id if data and data.agent_id else "main_agent",
+        "agent_id": agent_id,
         "created_at": str(Path().stat().st_mtime) if False else str(uuid.uuid4()),
         "last_active_time": int(time.time()),
     }

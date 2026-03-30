@@ -111,10 +111,13 @@ def load_session_agent_id(session_id: str) -> str:
         try:
             sessions = json.loads(sessions_file.read_text())
             if session_id in sessions:
-                return sessions[session_id].get("agent_id", "")
+                agent_id = sessions[session_id].get("agent_id", "")
+                if agent_id:
+                    return agent_id
         except:
             pass
-    return ""
+    settings = load_settings()
+    return settings.get("default_agent_id", "main_agent")
 
 
 def load_agent_config(agent_id: str) -> dict:
@@ -448,15 +451,28 @@ async def fastclaw_agent(state: dict, event: Event) -> dict:
     if "_agent_config" not in state:
         settings = load_settings()
         default_agent_id = settings.get("default_agent_id", "main_agent")
-        session_agent_id = load_session_agent_id(session_id)
-        effective_agent_id = session_agent_id if session_agent_id else default_agent_id
+        effective_agent_id = load_session_agent_id(session_id) or default_agent_id
         agent_config = load_agent_config(effective_agent_id)
         state["_agent_config"] = agent_config
+        state["_bound_agent_id"] = effective_agent_id
         agent_name = agent_config.get("name", effective_agent_id)
         personality = load_agent_personality(agent_name)
         state["_personality"] = personality
         existing_messages = load_messages_from_jsonl(session_id)
         state["messages"] = existing_messages if existing_messages else []
+    else:
+        current_bound_agent = state.get("_bound_agent_id", "")
+        session_current_agent = load_session_agent_id(session_id)
+        if session_current_agent and session_current_agent != current_bound_agent:
+            settings = load_settings()
+            default_agent_id = settings.get("default_agent_id", "main_agent")
+            effective_agent_id = session_current_agent or default_agent_id
+            agent_config = load_agent_config(effective_agent_id)
+            state["_agent_config"] = agent_config
+            state["_bound_agent_id"] = effective_agent_id
+            agent_name = agent_config.get("name", effective_agent_id)
+            personality = load_agent_personality(agent_name)
+            state["_personality"] = personality
 
     user_text = event.payload.get("text", "")
 

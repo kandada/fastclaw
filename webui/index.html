@@ -866,7 +866,7 @@
 
                 function showBindAgentDialog() {
                     const session = sessions.value.find(s => s.session_id === currentSessionId.value);
-                    bindAgentForm.value = { agent_id: session?.agent_id || '' };
+                    bindAgentForm.value = { agent_id: session?.agent_id || settings.value.default_agent_id || 'main_agent' };
                     bindAgentDialogVisible.value = true;
                 }
 
@@ -889,12 +889,16 @@
 
                 async function bindAgent() {
                     if (!currentSessionId.value) return;
+                    const agent_id = bindAgentForm.value.agent_id || settings.value.default_agent_id || 'main_agent';
                     await fetch(`/api/sessions/${currentSessionId.value}`, {
                         method: 'PATCH',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ agent_id: bindAgentForm.value.agent_id })
+                        body: JSON.stringify({ agent_id })
                     });
                     bindAgentDialogVisible.value = false;
+                    await loadSessions();
+                    disconnect();
+                    connect(currentSessionId.value);
                 }
 
                 onMounted(() => {
