@@ -1,4 +1,4 @@
-fastmind>=0.1.7
+fastmind>=0.1.8
 openai>=1.0.0
 websockets>=10.0
 pytest>=7.0.0
