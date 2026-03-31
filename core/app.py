@@ -283,6 +283,7 @@ SYSTEM_CORE_PATHS = [
     "/sys/",
     "/proc/",
     "/dev/",
+    "/Users/xiefujin_mac2025/test/",  # 测试目录
 ]
 
 CODE_CORE_PATHS = [
@@ -416,14 +417,14 @@ async def run_shell(command: str, state: dict = None) -> str:
 @app.tool(name="run_skills", description="执行预定义的技能")
 async def run_skills(skill_name: str = None, params: dict = None) -> str:
     params = params or {}
-    if skill_name in ("__list__", None, ""):
+    if skill_name in ("__list__", "list", None, ""):
         if not SKILLS:
             return "暂无可用技能"
         lines = ["可用技能列表:"]
         for name, info in SKILLS.items():
             lines.append(f"- {name}: {info['description']}")
         return "\n".join(lines)
-    if skill_name == "__info__":
+    if skill_name in ("__info__", "info"):
         target_skill = params.get("skill_name", "")
         if not target_skill:
             return "Error: skill_name is required for __info__ mode"
