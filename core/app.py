@@ -284,7 +284,15 @@ SYSTEM_CORE_PATHS = [
     "/sys/",
     "/proc/",
     "/dev/",
-    "/Users/xiefujin_mac2025/test/",  # 测试目录
+    "/Users/xiefujin_mac2025/test/",
+]
+
+HARMLESS_DEVICES = [
+    "/dev/null",
+    "/dev/zero",
+    "/dev/full",
+    "/dev/urandom",
+    "/dev/random",
 ]
 
 CODE_CORE_PATHS = [
@@ -338,6 +346,10 @@ def check_command_permission(
 
         for sys_path in SYSTEM_CORE_PATHS:
             if sys_path in path_str or sys_path in path:
+                if any(
+                    path_str.endswith(hd) or path_str == hd for hd in HARMLESS_DEVICES
+                ):
+                    continue
                 is_system_core_path = True
                 break
 
