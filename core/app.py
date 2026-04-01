@@ -15,6 +15,7 @@ import re
 from fastmind import FastMind, Graph, Event, ToolNode
 from fastmind.contrib import FastMindAPI
 from openai import AsyncOpenAI
+import time
 
 from core.prompts import format_system_prompt, SYSTEM_PROMPT
 
@@ -758,8 +759,9 @@ async def cron_checker(app: FastMind):
             target_session = task.get("session_id") or get_latest_session_id()
             agent_id = task.get("agent_id", "main_agent")
             yield Event(
-                type="cron.triggered",
+                type="user.message",
                 payload={
+                    "text": f"{task.get('description', '')}\nMessage from: [Cron]{task['name']} (Trigger time: {time.strftime('%Y-%m-%d %H:%M', time.localtime())}",
                     "task_id": task["id"],
                     "task_name": task["name"],
                     "description": task.get("description", ""),

@@ -326,11 +326,11 @@ async def trigger_cron(task_data: dict):
     session_id = task.get("session_id") or "default"
     description = task.get("description", "")
     event = Event(
-        type="cron.triggered",
+        type="user.message",
         payload={
             "task_id": task["id"],
             "task_name": task.get("name", ""),
-            "text": description,
+            "text": f"{task.get('description', '')}\nMessage from: [Cron]{task['name']} (Trigger time: {time.strftime('%Y-%m-%d %H:%M', time.localtime())}",
             "description": description,
             "agent_id": task.get("agent_id", "main_agent"),
         },

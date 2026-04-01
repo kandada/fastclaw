@@ -557,6 +557,7 @@
                     function handleMessage(data) {
                         if (data.type === 'stream.chunk') {
                             const delta = data.payload.delta;
+                            isStreaming.value = true;
                             if (pendingAssistantMsg) {
                                 pendingAssistantMsg.content += delta;
                             } else {
@@ -585,6 +586,7 @@
                             nextTick(scrollBottom());
                         } else if (data.type === 'stream.thinking') {
                             const delta = data.payload.delta;
+                            isStreaming.value = true;
                             if (pendingAssistantMsg) {
                                 pendingAssistantMsg.thinking = (pendingAssistantMsg.thinking || '') + delta;
                             } else {
@@ -677,7 +679,8 @@
                     const text = chatText.value.trim();
                     if (!text || !currentSessionId.value) return;
                     if (isStreaming.value) {
-                        isStreaming.value = false;
+                        // Agent 正在回复，禁止发送新消息
+                        return;
                     }
                     chatText.value = '';
                     messages.value.push({ role: 'user', content: text });
