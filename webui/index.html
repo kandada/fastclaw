@@ -555,6 +555,11 @@
                     pendingAssistantMsg = null;
                     
                     function handleMessage(data) {
+                        // 忽略不属于当前会话的消息
+                        if (data.session_id && data.session_id !== currentSessionId.value) {
+                            return;
+                        }
+                        
                         if (data.type === 'stream.chunk') {
                             const delta = data.payload.delta;
                             isStreaming.value = true;
@@ -749,6 +754,14 @@
                 async function saveCron() {
                     const t = { ...cronForm.value };
                     if (!t.id) t.id = 'task_' + Date.now();
+                    
+                    // 验证 session_id 是否有效
+                    const validSessionIds = sessions.value.map(s => s.session_id);
+                    if (t.session_id && !validSessionIds.includes(t.session_id)) {
+                        console.warn('Invalid session_id, clearing:', t.session_id);
+                        t.session_id = '';
+                    }
+                    
                     await fetch('/api/crons', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(t) });
                     cronDialogVisible.value = false;
                     loadCronTasks();
