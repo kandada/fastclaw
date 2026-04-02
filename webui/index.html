@@ -385,6 +385,20 @@
                     </table>
                 </div>
                 <div style="margin-bottom:32px">
+                    <h3 style="font-size:16px;font-weight:600;margin-bottom:16px;padding-bottom:8px;border-bottom:1px solid #e0e0e0">Chat Commands</h3>
+                    <p style="color:#666;font-size:12px;margin-bottom:12px">On non-WebUI channels (e.g. Feishu, Telegram, CLI), you can use chat commands to create new sessions and more.</p>
+                    <table class="cmd-table" style="table-layout:fixed;width:100%">
+                        <colgroup><col style="width:50%"><col style="width:50%"></colgroup>
+                        <thead><tr><th style="width:50%">Command</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td><code>/new</code></td><td>Create a new session</td></tr>
+                            <tr><td><code>/clear</code></td><td>Clear current session chat history</td></tr>
+                            <tr><td><code>/session &lt;session_id&gt;</code></td><td>Switch to specified session</td></tr>
+                            <tr><td><code>/session_list</code></td><td>List all sessions</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div style="margin-bottom:32px">
                     <h3 style="font-size:16px;font-weight:600;margin-bottom:16px;padding-bottom:8px;border-bottom:1px solid #e0e0e0">API Endpoints</h3>
                     <table class="cmd-table" style="table-layout:fixed;width:100%">
                         <colgroup><col style="width:50%"><col style="width:50%"></colgroup>
@@ -547,7 +561,12 @@
                 async function loadSessions() {
                     try {
                         const r = await fetch('/api/sessions');
-                        sessions.value = await r.json();
+                        let allSessions = await r.json();
+                        // 过滤掉渠道会话（cli_, feishu_, telegram_, imessage_ 前缀）
+                        const channelPrefixes = ['cli_', 'feishu_', 'telegram_', 'imessage_'];
+                        sessions.value = allSessions.filter(s => {
+                            return !channelPrefixes.some(prefix => s.session_id.startsWith(prefix));
+                        });
                         if (!currentSessionId.value && sessions.value.length > 0) {
                             selectLatestSession();
                         }

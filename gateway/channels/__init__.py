@@ -4,6 +4,7 @@ from gateway.channels.base import ChannelAdapter
 from gateway.channels.feishu import FeishuAdapter, FeishuWebhookHandler
 from gateway.channels.imessage import IMessageAdapter
 from gateway.channels.telegram import TelegramAdapter, TelegramWebhookHandler
+from gateway.channels import handlers
 
 __all__ = [
     "ChannelAdapter",
@@ -12,4 +13,5 @@ __all__ = [
     "IMessageAdapter",
     "TelegramAdapter",
     "TelegramWebhookHandler",
+    "handlers",
 ]

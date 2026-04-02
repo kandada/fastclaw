@@ -18,8 +18,12 @@ import uvicorn
 from core.app import start
 from gateway.router import router, set_websocket_api
 from gateway.cron_scheduler import get_cron_scheduler
+from gateway.channels import FeishuAdapter
+from gateway.channels.feishu import set_main_loop
 
 WEBUI_DIR = Path(__file__).parent.parent / "webui"
+
+_channels = {}
 
 
 @asynccontextmanager
@@ -68,8 +72,43 @@ class GatewayServer:
         set_websocket_api(self.api)
         print(f"Gateway API started")
 
+        await self._init_channels()
+
+    async def _init_channels(self):
+        """初始化渠道连接"""
+        global _channels
+        config_dir = Path("workspace/data/channels")
+
+        if not config_dir.exists():
+            print("No channels directory found, skipping channel initialization")
+            return
+
+        feishu_config_file = config_dir / "feishu_config.json"
+        if feishu_config_file.exists():
+            try:
+                import json
+
+                config = json.loads(feishu_config_file.read_text())
+                if config.get("enabled"):
+                    adapter = FeishuAdapter()
+                    adapter.load_config_from_file(str(feishu_config_file))
+                    await adapter.connect()
+                    _channels["feishu"] = adapter
+                    print(f"Feishu channel connected")
+            except Exception as e:
+                print(f"Failed to connect Feishu channel: {e}")
+
     async def stop(self):
         """停止 Gateway 服务"""
+        global _channels
+        for name, channel in _channels.items():
+            try:
+                await channel.disconnect()
+                print(f"{name} channel disconnected")
+            except Exception as e:
+                print(f"Error disconnecting {name} channel: {e}")
+        _channels.clear()
+
         if self.api:
             await self.api.stop()
         if self._stop_event:
@@ -89,7 +128,13 @@ class GatewayServer:
         )
         server = uvicorn.Server(config)
         self._stop_event = asyncio.Event()
-        asyncio.run(server.serve())
+
+        # 设置主 loop 供飞书回调使用
+        async def run_with_loop():
+            set_main_loop(asyncio.get_running_loop())
+            await server.serve()
+
+        asyncio.run(run_with_loop())
         self._stop_event.set()
 
     def run(self):

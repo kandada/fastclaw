@@ -8,3 +8,4 @@ uvicorn[standard]>=0.35.0
 httpx>=0.23.0
 anyio>=4.5
 croniter>=6.2.0
+lark-oapi>=1.0.0

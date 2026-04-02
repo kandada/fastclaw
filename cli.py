@@ -4,6 +4,7 @@
 import asyncio
 import sys
 import logging
+import uuid
 from pathlib import Path
 
 try:
@@ -13,12 +14,31 @@ except ImportError:
     def colored(text, color=None):
         return text
 
-# sys.path.insert(0, str(Path(__file__).parent / "vendor"))
 
 from fastmind import Event
 from core.app import start
+from gateway.channels.handlers import (
+    handle_channel_command,
+    load_sessions,
+    save_sessions,
+    get_last_session,
+)
 
 logging.disable(logging.WARNING)
+
+
+def create_cli_session():
+    """创建 CLI 会话并保存到 sessions.json"""
+    sessions = load_sessions()
+    new_session_id = f"cli_{uuid.uuid4().hex[:8]}"
+    sessions[new_session_id] = {
+        "session_id": new_session_id,
+        "agent_id": "main_agent",
+        "created_at": str(uuid.uuid4()),
+        "last_active_time": int(__import__("time").time()),
+    }
+    save_sessions(sessions)
+    return new_session_id
 
 
 async def chat(new_session=False, session_id=None):
@@ -27,14 +47,17 @@ async def chat(new_session=False, session_id=None):
     if session_id:
         pass
     elif new_session:
-        import uuid
-
-        session_id = f"cli_{uuid.uuid4().hex[:8]}"
+        session_id = create_cli_session()
     else:
-        session_id = "cli_default_0327_2"
+        last_session = get_last_session("cli")
+        if last_session:
+            session_id = last_session
+        else:
+            session_id = create_cli_session()
 
     print("=" * 50)
     print("FastClaw CLI (输入 'quit' 退出)")
+    print("支持命令: /new, /clear, /session <id>, /session_list")
     print("=" * 50)
 
     async def consume_stream():
@@ -92,8 +115,6 @@ async def chat(new_session=False, session_id=None):
                     content = event.payload.get("content", "")
                     if content:
                         pass
-                        # print(content, end="", flush=True)
-                        # buffer += content
                 elif event.type == "stream.end":
                     if thinking_shown:
                         print("\r" + " " * 80, end="", flush=True)
@@ -116,13 +137,66 @@ async def chat(new_session=False, session_id=None):
             print(f"\n[异常: {e}]")
             return buffer
 
+    async def handle_cli_command(
+        text: str, current_session_id: str
+    ) -> tuple[bool, str]:
+        """处理 CLI 命令，返回 (是否已处理, 是否需要更新session_id, 新的session_id)"""
+        text = text.strip()
+        new_session_id = current_session_id
+
+        if text == "/new":
+            new_session_id = create_cli_session()
+            print(f"\n已创建新会话: {new_session_id}")
+            return True, new_session_id
+
+        elif text == "/clear":
+            session_dir = Path(f"workspace/data/sessions/{current_session_id}")
+            messages_file = session_dir / "messages.jsonl"
+            if messages_file.exists():
+                messages_file.unlink()
+            print(f"\n已清空当前会话 {current_session_id} 的聊天记录")
+            return True, current_session_id
+
+        elif text.startswith("/session "):
+            parts = text.split(" ", 1)
+            if len(parts) == 2:
+                target_id = parts[1].strip()
+                sessions = load_sessions()
+                if target_id in sessions:
+                    print(f"\n已切换到会话: {target_id}")
+                    new_session_id = target_id
+                else:
+                    print(f"\n未找到会话: {target_id}")
+                return True, current_session_id
+
+        elif text == "/session_list":
+            sessions = load_sessions()
+            if sessions:
+                print("\n当前所有会话:")
+                for sid, info in sessions.items():
+                    marker = " <-- 当前" if sid == current_session_id else ""
+                    agent = info.get("agent_id", "unknown")
+                    print(f"  - {sid} (agent: {agent}){marker}")
+            else:
+                print("\n当前没有会话")
+            return True, current_session_id
+
+        return False, current_session_id
+
     while True:
         try:
-            user_input = input("\n你: ").strip()
+            user_input = input(f"\n你 ({session_id}): ").strip()
             if not user_input:
                 continue
             if user_input.lower() == "quit":
                 break
+
+            is_command, new_session_id = await handle_cli_command(
+                user_input, session_id
+            )
+            session_id = new_session_id
+            if is_command:
+                continue
 
             event = Event("user.message", {"text": user_input}, session_id)
             await api.push_event(session_id, event)

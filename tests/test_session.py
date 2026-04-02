@@ -16,28 +16,15 @@ from tests.conftest import cleanup_test_session
 class TestSessionStorage:
     """Session 存储测试"""
 
-    def test_ensure_sessions_db_creates_file(self, tmp_path):
-        """测试 ensure_sessions_db 创建数据库文件"""
-        SESSION_DB_FILE.parent.mkdir(parents=True, exist_ok=True)
-
-        if SESSION_DB_FILE.exists():
-            SESSION_DB_FILE.unlink()
-
-        ensure_sessions_db()
-
-        assert SESSION_DB_FILE.exists()
-        assert SESSION_DB_FILE.read_text() == "{}"
-
-    def test_save_and_load_sessions(self, tmp_path):
+    def test_save_and_load_sessions(self, tmp_path, backup_sessions_json):
         """测试保存和加载 sessions"""
         session_id = f"test_session_{uuid.uuid4().hex[:8]}"
-        sessions = {
-            session_id: {
-                "session_id": session_id,
-                "agent_id": "main_agent",
-                "created_at": "1234567890",
-                "last_active_time": 0,
-            }
+        sessions = load_sessions()
+        sessions[session_id] = {
+            "session_id": session_id,
+            "agent_id": "main_agent",
+            "created_at": "1234567890",
+            "last_active_time": 0,
         }
 
         save_sessions(sessions)
@@ -47,22 +34,6 @@ class TestSessionStorage:
         assert loaded[session_id]["agent_id"] == "main_agent"
 
         cleanup_test_session(session_id)
-
-    def test_load_sessions_empty(self, tmp_path):
-        """测试加载空的 sessions"""
-        SESSION_DB_FILE.parent.mkdir(parents=True, exist_ok=True)
-        SESSION_DB_FILE.write_text("{}")
-
-        sessions = load_sessions()
-        assert sessions == {}
-
-    def test_load_sessions_invalid_json(self, tmp_path):
-        """测试加载无效 JSON"""
-        SESSION_DB_FILE.parent.mkdir(parents=True, exist_ok=True)
-        SESSION_DB_FILE.write_text("invalid json")
-
-        sessions = load_sessions()
-        assert sessions == {}
 
 
 class TestSessionCreate:

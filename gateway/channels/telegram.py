@@ -59,15 +59,21 @@ class TelegramAdapter(ChannelAdapter):
 
         Args:
             message: 消息内容
-            session_id: 用户的 chat_id
+            session_id: 格式为 telegram_{chat_id}
         """
         if not session_id:
-            raise ValueError("session_id (chat_id) is required for Telegram messages")
+            raise ValueError("session_id is required for Telegram messages")
+
+        chat_id = (
+            session_id.replace("telegram_", "")
+            if session_id.startswith("telegram_")
+            else session_id
+        )
 
         result = await self._make_request(
             "sendMessage",
             {
-                "chat_id": session_id,
+                "chat_id": chat_id,
                 "text": message,
                 "parse_mode": "Markdown",
             },
@@ -92,18 +98,19 @@ class TelegramAdapter(ChannelAdapter):
             msg = message["message"]
             chat_id = str(msg["chat"]["id"])
             text = msg.get("text", "")
+            session_id = f"telegram_{chat_id}"
 
             if text:
                 telegram_event = Event(
                     type="user.message",
                     payload={"text": text, "channel": "telegram"},
-                    session_id=chat_id,
+                    session_id=session_id,
                 )
 
                 from gateway.router import _websocket_api
 
                 if _websocket_api:
-                    await _websocket_api.push_event(chat_id, telegram_event)
+                    await _websocket_api.push_event(session_id, telegram_event)
 
         return update_id
 

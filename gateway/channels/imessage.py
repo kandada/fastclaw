@@ -30,13 +30,18 @@ class IMessageAdapter(ChannelAdapter):
 
         Args:
             message: 消息内容
-            session_id: 收件人（电话号码或邮箱）
+            session_id: 格式为 imessage_{recipient}
         """
         recipient = session_id or self.recipient
         if not recipient:
             raise ValueError("Recipient is required for iMessage")
 
-        # 使用 AppleScript 发送 iMessage
+        recipient = (
+            recipient.replace("imessage_", "")
+            if recipient.startswith("imessage_")
+            else recipient
+        )
+
         script = f'''
         osascript -e '
         tell application "Messages"
@@ -68,11 +73,32 @@ class IMessageAdapter(ChannelAdapter):
             raise Exception(f"Failed to send iMessage: {e}")
 
     async def on_message(self, message: dict):
-        """接收消息（iMessage 作为输入源）
+        """接收消息（iMessage 作为输入源）"""
+        from gateway.router import _websocket_api
+        from gateway.channels.handlers import handle_channel_message
 
-        对于 iMessage，我们主要作为输出渠道，接收需要通过其他方式实现。
-        """
-        pass
+        if not _websocket_api:
+            print("[iMessage] ERROR: _websocket_api is None!")
+            return
+
+        text = message.get("text", "")
+        sender = message.get("sender", "")
+        if not text or not sender:
+            return
+
+        session_id = f"imessage_{sender}"
+        print(f"[iMessage] Message from {sender}, session={session_id}")
+
+        async def imessage_send(msg, sid):
+            await self.send_message(msg, session_id=sid)
+
+        await handle_channel_message(
+            channel_name="imessage",
+            sender_id=session_id,
+            text_content=text,
+            api=_websocket_api,
+            send_func=imessage_send,
+        )
 
     async def listen_incoming(self, callback):
         """监听传入消息（轮询方式）

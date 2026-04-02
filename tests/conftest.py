@@ -82,3 +82,23 @@ def pytest_runtest_setup(item):
 def pytest_runtest_teardown(item, nextitem):
     """测试结束后的清理"""
     pass
+
+
+@pytest.fixture
+def backup_sessions_json():
+    """备份和恢复 sessions.json"""
+    import shutil
+    from gateway.router import SESSION_DB_FILE
+
+    backup_file = None
+    if SESSION_DB_FILE.exists():
+        backup_file = SESSION_DB_FILE.with_suffix(".json.bak")
+        shutil.copy(SESSION_DB_FILE, backup_file)
+
+    yield
+
+    if backup_file and backup_file.exists():
+        shutil.copy(backup_file, SESSION_DB_FILE)
+        backup_file.unlink()
+    elif SESSION_DB_FILE.exists():
+        SESSION_DB_FILE.unlink()

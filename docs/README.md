@@ -8,6 +8,7 @@ FastClaw 是一个基于大语言模型的智能助手框架，支持命令行�
 - [安装指南](installation.md) - 详细安装步骤
 - [命令行使用](cli.md) - CLI 命令详解
 - [WebUI 使用](webui.md) - Web 界面使用指南
+- [飞书渠道配置](channel-commands.md) - 飞书配置与渠道命令
 - [API 参考](api.md) - API 接口文档
 - [技能开发](skills.md) - 开发自定义技能
 - [Agent 配置](agents.md) - 配置智能体
