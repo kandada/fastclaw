@@ -1,1 +1,8 @@
-{"app_id": "test_id", "app_secret": "test_secret"}
+{
+  "enabled": false,
+  "app_id": "",
+  "app_secret": "",
+  "bot_name": "FastClaw",
+  "default_agent": "main_agent",
+  "auto_reply": true
+}

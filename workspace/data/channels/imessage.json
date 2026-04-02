@@ -1,0 +1,9 @@
+{
+  "enabled": true,
+  "bot_name": "FastClaw",
+  "default_agent": "main_agent",
+  "auto_reply": true,
+  "allowed_contacts": [
+    "490021684@qq.com"
+  ]
+}
