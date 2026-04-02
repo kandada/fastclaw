@@ -2,8 +2,7 @@
 
 import pytest
 import asyncio
-from unittest.mock import AsyncMock, patch, MagicMock
-from core.app import app, fastclaw_agent, route, graph
+
 from fastmind import Event
 
 
@@ -13,26 +12,26 @@ class TestStreamingDetails:
     @pytest.mark.asyncio
     async def test_streaming_yields_multiple_chunks(self):
         """测试流式输出产生多个 chunk"""
-        # 创建模拟的流式响应
         chunks_content = ["Hello", " ", "World", "!"]
 
-        mock_stream = AsyncMock()
-        mock_stream.__aiter__ = lambda self: self
+        class MockDelta:
+            def __init__(self, content):
+                self.content = content
+                self.tool_calls = None
+
+        class MockChoice:
+            def __init__(self, delta):
+                self.delta = delta
+                self.index = 0
+
+        class MockChunk:
+            def __init__(self, delta_content):
+                self.choices = [MockChoice(MockDelta(delta_content))]
 
         async def async_gen():
             for chunk_text in chunks_content:
-                mock_choice = MagicMock()
-                mock_choice.delta.content = chunk_text
-                mock_choice.delta.tool_calls = None
-                mock_choice.index = 0
+                yield MockChunk(chunk_text)
 
-                mock_chunk = MagicMock()
-                mock_chunk.choices = [mock_choice]
-                yield mock_chunk
-
-        mock_stream.__anext__ = async_gen().__anext__
-
-        # 验证流式生成器可以被迭代
         collected = []
         async for chunk in async_gen():
             if chunk.choices[0].delta.content:
@@ -48,7 +47,7 @@ class TestStreamingDetails:
 
         collected = []
         for chunk_text in chunks_content:
-            if chunk_text:  # 过滤空字符串
+            if chunk_text:
                 collected.append(chunk_text)
 
         assert len(collected) == 2

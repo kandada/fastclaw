@@ -328,7 +328,8 @@ async def main():
 
         print(f"FastClaw Gateway running at http://{host}:{port}")
         print(f"WebUI available at http://{host}:{port}/")
-        print(f"WebSocket available at ws://{host}:{port}/ws")
+        print(f"SSE endpoint at http://{host}:{port}/api/chat/{{session_id}}")
+        print(f"WebSocket available at ws://{host}:{port}/ws (legacy)")
         print(f"Press Ctrl+C to stop")
 
         server.run()

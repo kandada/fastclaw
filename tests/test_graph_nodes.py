@@ -2,15 +2,14 @@
 
 import pytest
 import asyncio
+
 from core.app import (
     app,
-    fastclaw_agent,
     route,
     graph,
     tool_node,
-    check_command_permission,
 )
-from fastmind import Event, Graph
+from fastmind import Event
 
 
 class TestGraphStructure:
@@ -30,7 +29,6 @@ class TestGraphStructure:
         """图有节点"""
         assert graph is not None
 
-        # 检查节点
         assert graph.get_node("agent") is not None
         assert graph.get_node("tools") is not None
 
@@ -68,21 +66,17 @@ class TestGraphEdges:
 
     def test_graph_has_edges(self):
         """图有边"""
-        # 验证边存在 - 通过 get_next_node 验证
         state = {"tool_calls": [{"id": "1"}]}
         event = Event("test", {}, "s1")
 
-        # agent -> tools 边
         next_node = graph.get_next_node("agent", state, event)
         assert next_node == "tools"
 
-        # tools -> agent 边
         next_node = graph.get_next_node("tools", {}, event)
         assert next_node == "agent"
 
     def test_tools_to_agent_edge(self):
         """tools -> agent 边存在"""
-        # 验证 tools 执行完后回到 agent
         state = {}
         event = Event("test", {}, "s1")
         next_node = graph.get_next_node("tools", state, event)
@@ -175,34 +169,27 @@ class TestGraphIntegration:
 
     def test_full_flow_without_tools(self):
         """完整流程：无工具调用"""
-        # user -> agent -> end
         state = {"_session_id": "test", "messages": []}
         event = Event("user.message", {"text": "Hello"}, "test")
 
-        # 添加用户消息
         state["messages"].append({"role": "user", "content": "Hello"})
 
-        # agent 决策：无 tool_calls
         result = route(state, event)
-        assert result is None  # 结束
+        assert result is None
 
     def test_full_flow_with_tools(self):
         """完整流程：有工具调用"""
-        # user -> agent -> tools -> agent -> end
         state = {"_session_id": "test", "messages": []}
         event = Event("user.message", {"text": "Run ls"}, "test")
 
-        # 添加用户消息
         state["messages"].append({"role": "user", "content": "Run ls"})
 
-        # agent 决策：有 tool_calls
         state["tool_calls"] = [
             {"id": "call_1", "function": {"name": "run_shell", "arguments": "{}"}}
         ]
         result = route(state, event)
         assert result == "tools"
 
-        # tools 执行后，结果放入 state
         state["tool_results"] = [
             {"tool_call_id": "call_1", "tool_name": "run_shell", "result": "files"}
         ]
@@ -211,9 +198,8 @@ class TestGraphIntegration:
             {"role": "tool", "tool_call_id": "call_1", "content": "[run_shell]: files"}
         )
 
-        # 回到 agent
         result = route(state, event)
-        assert result is None  # 结束
+        assert result is None
 
 
 class TestGraphState:
@@ -271,10 +257,8 @@ class TestGraphReAct:
         }
         event = Event("user.message", {"text": "Hello"}, "test")
 
-        # Agent 决策：无需工具，直接回复
         result = route(state, event)
 
-        # 无 tool_calls，流程结束
         assert result is None
 
     def test_react_loop_with_tool_use(self):
@@ -285,7 +269,6 @@ class TestGraphReAct:
         }
         event = Event("user.message", {"text": "List files"}, "test")
 
-        # 模拟 LLM 返回 tool_calls
         state["tool_calls"] = [
             {
                 "id": "call_1",
@@ -293,17 +276,14 @@ class TestGraphReAct:
             }
         ]
 
-        # Route 到 tools
         next_node = graph.get_next_node("agent", state, event)
         assert next_node == "tools"
 
-        # Tools 执行后
         state["tool_results"] = [
             {"tool_call_id": "call_1", "tool_name": "run_shell", "result": "file1.txt"}
         ]
         del state["tool_calls"]
 
-        # Route 回到 agent
         next_node = graph.get_next_node("tools", state, event)
         assert next_node == "agent"
 
@@ -315,7 +295,6 @@ class TestGraphReAct:
         }
         event = Event("user.message", {"text": "Check files and get time"}, "test")
 
-        # 第一次工具调用
         state["tool_calls"] = [
             {
                 "id": "call_1",
@@ -326,13 +305,11 @@ class TestGraphReAct:
         next_node = graph.get_next_node("agent", state, event)
         assert next_node == "tools"
 
-        # 第一个工具结果
         state["tool_results"] = [
             {"tool_call_id": "call_1", "tool_name": "run_shell", "result": "files"}
         ]
         del state["tool_calls"]
 
-        # 第二次工具调用
         state["tool_calls"] = [
             {
                 "id": "call_2",

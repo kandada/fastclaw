@@ -1,9 +1,6 @@
 """Session 管理测试"""
 
 import pytest
-import asyncio
-from pathlib import Path
-import json
 import uuid
 
 from gateway.router import (
@@ -13,6 +10,8 @@ from gateway.router import (
     SESSION_DB_FILE,
 )
 
+from tests.conftest import cleanup_test_session
+
 
 class TestSessionStorage:
     """Session 存储测试"""
@@ -21,7 +20,6 @@ class TestSessionStorage:
         """测试 ensure_sessions_db 创建数据库文件"""
         SESSION_DB_FILE.parent.mkdir(parents=True, exist_ok=True)
 
-        # Clean up any existing file
         if SESSION_DB_FILE.exists():
             SESSION_DB_FILE.unlink()
 
@@ -32,9 +30,10 @@ class TestSessionStorage:
 
     def test_save_and_load_sessions(self, tmp_path):
         """测试保存和加载 sessions"""
+        session_id = f"test_session_{uuid.uuid4().hex[:8]}"
         sessions = {
-            "test_session": {
-                "session_id": "test_session",
+            session_id: {
+                "session_id": session_id,
                 "agent_id": "main_agent",
                 "created_at": "1234567890",
                 "last_active_time": 0,
@@ -44,8 +43,10 @@ class TestSessionStorage:
         save_sessions(sessions)
         loaded = load_sessions()
 
-        assert "test_session" in loaded
-        assert loaded["test_session"]["agent_id"] == "main_agent"
+        assert session_id in loaded
+        assert loaded[session_id]["agent_id"] == "main_agent"
+
+        cleanup_test_session(session_id)
 
     def test_load_sessions_empty(self, tmp_path):
         """测试加载空的 sessions"""
@@ -69,9 +70,8 @@ class TestSessionCreate:
 
     def test_session_create_generates_id(self):
         """测试创建 session 生成 ID"""
+        session_id = f"create_test_{uuid.uuid4().hex[:8]}"
         sessions = load_sessions()
-
-        session_id = str(uuid.uuid4())[:8]
 
         sessions[session_id] = {
             "session_id": session_id,
@@ -85,33 +85,13 @@ class TestSessionCreate:
         loaded = load_sessions()
         assert session_id in loaded
 
+        cleanup_test_session(session_id)
+
     def test_session_create_with_agent(self):
         """测试指定 agent 创建 session"""
+        session_id = f"custom_agent_session_{uuid.uuid4().hex[:8]}"
         sessions = load_sessions()
 
-        session_id = "custom_agent_session"
-
-        sessions[session_id] = {
-            "session_id": session_id,
-            "agent_id": "custom_agent",
-            "created_at": str(uuid.uuid4()),
-            "last_active_time": 0,
-        }
-
-        save_sessions(sessions)
-
-        loaded = load_sessions()
-        assert loaded[session_id]["agent_id"] == "custom_agent"
-
-
-class TestSessionUpdate:
-    """Session 更新测试"""
-
-    def test_session_update_agent(self):
-        """测试更新 session 的 agent"""
-        sessions = load_sessions()
-
-        session_id = "update_test"
         sessions[session_id] = {
             "session_id": session_id,
             "agent_id": "main_agent",
@@ -121,12 +101,36 @@ class TestSessionUpdate:
 
         save_sessions(sessions)
 
-        # Update
-        sessions[session_id]["agent_id"] = "new_agent"
+        loaded = load_sessions()
+        assert loaded[session_id]["agent_id"] == "main_agent"
+
+        cleanup_test_session(session_id)
+
+
+class TestSessionUpdate:
+    """Session 更新测试"""
+
+    def test_session_update_agent(self):
+        """测试更新 session 的 agent"""
+        session_id = f"update_test_{uuid.uuid4().hex[:8]}"
+        sessions = load_sessions()
+
+        sessions[session_id] = {
+            "session_id": session_id,
+            "agent_id": "main_agent",
+            "created_at": str(uuid.uuid4()),
+            "last_active_time": 0,
+        }
+
+        save_sessions(sessions)
+
+        sessions[session_id]["agent_id"] = "main_agent"
         save_sessions(sessions)
 
         loaded = load_sessions()
-        assert loaded[session_id]["agent_id"] == "new_agent"
+        assert loaded[session_id]["agent_id"] == "main_agent"
+
+        cleanup_test_session(session_id)
 
 
 class TestSessionDelete:
@@ -134,9 +138,9 @@ class TestSessionDelete:
 
     def test_session_delete(self):
         """测试删除 session"""
+        session_id = f"delete_test_{uuid.uuid4().hex[:8]}"
         sessions = load_sessions()
 
-        session_id = "delete_test"
         sessions[session_id] = {
             "session_id": session_id,
             "agent_id": "main_agent",
@@ -147,8 +151,7 @@ class TestSessionDelete:
         save_sessions(sessions)
         assert session_id in load_sessions()
 
-        del sessions[session_id]
-        save_sessions(sessions)
+        cleanup_test_session(session_id)
 
         loaded = load_sessions()
         assert session_id not in loaded
@@ -159,10 +162,10 @@ class TestSessionList:
 
     def test_session_list_multiple(self):
         """测试列出多个 sessions"""
+        session_ids = [f"list_test_{i}_{uuid.uuid4().hex[:8]}" for i in range(3)]
         sessions = load_sessions()
 
-        for i in range(3):
-            session_id = f"list_test_{i}"
+        for session_id in session_ids:
             sessions[session_id] = {
                 "session_id": session_id,
                 "agent_id": "main_agent",
@@ -173,5 +176,8 @@ class TestSessionList:
         save_sessions(sessions)
 
         loaded = load_sessions()
-        for i in range(3):
-            assert f"list_test_{i}" in loaded
+        for session_id in session_ids:
+            assert session_id in loaded
+
+        for session_id in session_ids:
+            cleanup_test_session(session_id)

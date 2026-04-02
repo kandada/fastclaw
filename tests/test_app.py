@@ -1,7 +1,7 @@
 """核心引擎测试"""
 
 import pytest
-import asyncio
+
 from core.app import (
     app,
     run_shell,

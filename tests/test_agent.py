@@ -1,14 +1,9 @@
 """Agent 和 Route 函数测试"""
 
 import pytest
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).parent.parent / "vendor"))
-
-from fastmind import Event
 
 from core.app import route
+from fastmind import Event
 
 
 class TestRouteFunction:
@@ -76,7 +71,7 @@ class TestRouteEdgeCases:
 
     def test_route_partial_state(self):
         """部分 state（空tool_calls列表，无_end）返回None"""
-        state = {"tool_calls": []}  # 空列表是 falsy
+        state = {"tool_calls": []}
         event = Event("test", {}, "session1")
         result = route(state, event)
         assert result is None

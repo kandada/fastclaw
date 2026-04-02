@@ -6,6 +6,7 @@ FastAPI (端口 8765) serves both API and WebUI
 
 import asyncio
 import threading
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -16,8 +17,18 @@ import uvicorn
 
 from core.app import start
 from gateway.router import router, set_websocket_api
+from gateway.cron_scheduler import get_cron_scheduler
 
 WEBUI_DIR = Path(__file__).parent.parent / "webui"
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """应用生命周期管理"""
+    cron_scheduler = get_cron_scheduler()
+    await cron_scheduler.start()
+    yield
+    await cron_scheduler.stop()
 
 
 class GatewayServer:
@@ -30,7 +41,7 @@ class GatewayServer:
         self._server_thread = None
         self._stop_event = None
 
-        self.app = FastAPI(title="FastClaw Gateway")
+        self.app = FastAPI(title="FastClaw Gateway", lifespan=lifespan)
         self.app.add_middleware(
             CORSMiddleware,
             allow_origins=["*"],
@@ -94,7 +105,8 @@ async def main():
 
     print(f"FastClaw Gateway running at http://{server.host}:{server.port}")
     print(f"WebUI available at http://{server.host}:{server.port}/")
-    print(f"WebSocket available at ws://{server.host}:{server.port}/ws")
+    print(f"SSE endpoint at http://{server.host}:{server.port}/api/chat/{{session_id}}")
+    print(f"WebSocket available at ws://{server.host}:{server.port}/ws (legacy)")
 
     server.run()
 

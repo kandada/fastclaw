@@ -7,6 +7,7 @@ from pathlib import Path
 # sys.path.insert(0, str(Path(__file__).parent.parent / "vendor"))
 
 import asyncio
+import datetime
 import subprocess
 import json
 import importlib.util
@@ -712,75 +713,6 @@ graph.add_edge("tools", "agent")
 
 graph.set_entry_point("agent")
 app.register_graph("main", graph)
-
-
-@app.perception(interval=60.0, name="cron_checker")
-async def cron_checker(app: FastMind):
-    import datetime
-
-    BASE_DIR = Path(__file__).parent.parent.resolve()
-    CRON_TASKS_FILE = BASE_DIR / "workspace" / "data" / "cron" / "tasks.json"
-    SESSIONS_DIR = BASE_DIR / "workspace" / "data" / "sessions"
-
-    def get_latest_session_id() -> str:
-        sessions_dir = SESSIONS_DIR
-        if not sessions_dir.exists():
-            return "default"
-        sessions = []
-        for session_path in sessions_dir.iterdir():
-            if session_path.is_dir():
-                metadata_file = session_path / "metadata.json"
-                if metadata_file.exists():
-                    try:
-                        metadata = json.loads(metadata_file.read_text())
-                        last_active = metadata.get("last_active_time", 0)
-                    except:
-                        last_active = 0
-                else:
-                    last_active = 0
-                sessions.append((last_active, session_path.name))
-        if not sessions:
-            return "default"
-        sessions.sort(reverse=True)
-        return sessions[0][1]
-
-    def should_run(now: datetime.datetime, schedule: str) -> bool:
-        parts = schedule.split()
-        if len(parts) != 5:
-            return False
-        minute = parts[0]
-        if minute == "*":
-            return True
-        if now.minute == int(minute):
-            return True
-        return False
-
-    tasks = []
-    if CRON_TASKS_FILE.exists():
-        try:
-            tasks = json.loads(CRON_TASKS_FILE.read_text())
-        except:
-            tasks = []
-
-    now = datetime.datetime.now()
-
-    for task in tasks:
-        if not task.get("enabled", False):
-            continue
-        if should_run(now, task["schedule"]):
-            target_session = task.get("session_id") or get_latest_session_id()
-            agent_id = task.get("agent_id", "main_agent")
-            yield Event(
-                type="user.message",
-                payload={
-                    "text": f"{task.get('description', '')}\nMessage from: [Cron]{task['name']} (Trigger time: {time.strftime('%Y-%m-%d %H:%M', time.localtime())}",
-                    "task_id": task["id"],
-                    "task_name": task["name"],
-                    "description": task.get("description", ""),
-                    "agent_id": agent_id,
-                },
-                session_id=target_session,
-            )
 
 
 async def start():

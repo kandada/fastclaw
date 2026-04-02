@@ -6,12 +6,16 @@ import json
 import shutil
 import socket
 import time
+import uuid
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict
 
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse, FileResponse
 from pydantic import BaseModel
+
+from gateway.event_bus import EventBus, get_event_bus, set_event_bus
+from gateway.cron_scheduler import CronScheduler, get_cron_scheduler
 
 router = APIRouter()
 
@@ -74,6 +78,61 @@ def update_session_activity(session_id: str):
     asyncio.get_event_loop().run_in_executor(
         None, _update_session_activity_sync, session_id
     )
+
+
+def validate_cron_schedule(schedule: str) -> tuple:
+    """验证 cron 表达式格式
+
+    Returns:
+        (is_valid, error_message)
+    """
+    if not schedule or not schedule.strip():
+        return False, "Schedule cannot be empty"
+
+    parts = schedule.strip().split()
+    if len(parts) != 5:
+        return False, "Schedule must have 5 parts (minute, hour, day, month, weekday)"
+
+    if all(p == "*" for p in parts):
+        return False, "Schedule cannot be all '*'"
+
+    return True, ""
+
+
+def prepare_cron_task(task_data: dict) -> tuple:
+    """准备并验证 cron 任务数据
+
+    Returns:
+        (prepared_task, error_message)
+    """
+    errors = []
+
+    if not task_data.get("id"):
+        errors.append("id")
+    if not task_data.get("name"):
+        errors.append("name")
+    if not task_data.get("schedule"):
+        errors.append("schedule")
+
+    if errors:
+        return {}, f"Missing required fields: {', '.join(errors)}"
+
+    schedule = task_data.get("schedule", "")
+    valid, msg = validate_cron_schedule(schedule)
+    if not valid:
+        return {}, msg
+
+    prepared = {
+        "id": task_data["id"],
+        "name": task_data["name"],
+        "schedule": schedule,
+        "description": task_data.get("description", ""),
+        "agent_id": task_data.get("agent_id", "main_agent"),
+        "session_id": task_data.get("session_id"),
+        "enabled": task_data.get("enabled", True),
+    }
+
+    return prepared, ""
 
 
 @router.get("/api/health")
@@ -255,6 +314,10 @@ async def list_crons():
 @router.post("/api/crons")
 async def create_cron(task_data: dict):
     """创建或更新 Cron 任务"""
+    prepared, error = prepare_cron_task(task_data)
+    if error:
+        raise HTTPException(status_code=400, detail=error)
+
     tasks_file = Path("workspace/data/cron/tasks.json")
     tasks_file.parent.mkdir(parents=True, exist_ok=True)
 
@@ -265,7 +328,7 @@ async def create_cron(task_data: dict):
         except:
             pass
 
-    task_id = task_data.get("id")
+    task_id = prepared.get("id")
     if task_id:
         existing_idx = None
         for i, t in enumerate(tasks):
@@ -273,14 +336,18 @@ async def create_cron(task_data: dict):
                 existing_idx = i
                 break
         if existing_idx is not None:
-            tasks[existing_idx] = task_data
+            tasks[existing_idx] = prepared
         else:
-            tasks.append(task_data)
+            tasks.append(prepared)
     else:
-        tasks.append(task_data)
+        tasks.append(prepared)
 
     tasks_file.write_text(json.dumps(tasks, indent=2))
-    return {"status": "created", "task": task_data}
+
+    cron_scheduler = get_cron_scheduler()
+    cron_scheduler.reload_tasks()
+
+    return {"status": "created", "task": prepared}
 
 
 @router.delete("/api/crons/{task_id}")
@@ -292,6 +359,8 @@ async def delete_cron(task_id: str):
             tasks = json.loads(tasks_file.read_text())
             tasks = [t for t in tasks if t.get("id") != task_id]
             tasks_file.write_text(json.dumps(tasks, indent=2))
+            cron_scheduler = get_cron_scheduler()
+            cron_scheduler.reload_tasks()
         except:
             pass
     return {"status": "deleted"}
@@ -303,40 +372,11 @@ async def trigger_cron(task_data: dict):
     global _websocket_api
     task_id = task_data.get("task_id")
 
-    if _websocket_api is None:
-        raise HTTPException(status_code=500, detail="API not initialized")
+    cron_scheduler = get_cron_scheduler()
+    success = await cron_scheduler.trigger_task(task_id)
 
-    tasks_file = Path("workspace/data/cron/tasks.json")
-    task = None
-    if tasks_file.exists():
-        try:
-            tasks = json.loads(tasks_file.read_text())
-            for t in tasks:
-                if t.get("id") == task_id:
-                    task = t
-                    break
-        except:
-            pass
-
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
-
-    from fastmind import Event
-
-    session_id = task.get("session_id") or "default"
-    description = task.get("description", "")
-    event = Event(
-        type="user.message",
-        payload={
-            "task_id": task["id"],
-            "task_name": task.get("name", ""),
-            "text": f"{task.get('description', '')}\nMessage from: [Cron]{task['name']} (Trigger time: {time.strftime('%Y-%m-%d %H:%M', time.localtime())}",
-            "description": description,
-            "agent_id": task.get("agent_id", "main_agent"),
-        },
-        session_id=session_id,
-    )
-    await _websocket_api.push_event(session_id, event)
+    if not success:
+        raise HTTPException(status_code=404, detail="Task not found or disabled")
 
     return {"status": "triggered", "task_id": task_id}
 
@@ -371,6 +411,12 @@ async def list_sessions():
     """列出所有 Session"""
     sessions = load_sessions()
     return list(sessions.values())
+
+
+@router.get("/api/sessions/unread")
+async def get_unread_counts():
+    """获取所有会话的未读消息数量"""
+    return {"unread_counts": _unread_counts}
 
 
 @router.get("/api/sessions/{session_id}")
@@ -443,6 +489,14 @@ async def delete_session_messages(session_id: str):
     return {"status": "cleared"}
 
 
+@router.post("/api/sessions/{session_id}/unread/clear")
+async def clear_unread_count(session_id: str):
+    """清除会话的未读消息数量"""
+    if session_id in _unread_counts:
+        _unread_counts[session_id] = 0
+    return {"status": "cleared", "session_id": session_id}
+
+
 @router.get("/api/settings")
 async def get_settings():
     """获取系统设置"""
@@ -464,11 +518,108 @@ async def update_settings(settings: dict):
 
 _websocket_api = None
 
+_cron_sse_queues: Dict[str, asyncio.Queue] = {}
+_unread_counts: Dict[str, int] = {}
+_pending_cron_messages: Dict[str, list] = {}
+
+_event_id_to_message_id: Dict[str, str] = {}
+_stream_consume_lock: asyncio.Lock = None
+
+
+async def get_stream_lock() -> asyncio.Lock:
+    global _stream_consume_lock
+    if _stream_consume_lock is None:
+        _stream_consume_lock = asyncio.Lock()
+    return _stream_consume_lock
+
+
+async def push_cron_event(session_id: str, event_data: dict):
+    """推送 Cron 事件到 AI 处理，并直接消费响应推送到 cron SSE 队列"""
+    print(f"[push_cron_event] session_id={session_id}, sending to AI")
+
+    if _websocket_api is None:
+        print("[push_cron_event] ERROR: _websocket_api is None!")
+        return
+
+    from fastmind import Event
+
+    payload = event_data.get("payload", {})
+    content = payload.get("content", "")
+    task_id = payload.get("task_id", "")
+    task_name = payload.get("task_name", "")
+    agent_id = payload.get("agent_id", "main_agent")
+    cron_id = payload.get("cron_id", "")
+    trigger_time = payload.get("trigger_time", "")
+
+    message_id = f"cron_{uuid.uuid4().hex[:12]}"
+
+    event = Event(
+        type="user.message",
+        payload={
+            "text": content,
+            "task_id": task_id,
+            "task_name": task_name,
+            "agent_id": agent_id,
+            "is_cron": True,
+            "message_id": message_id,
+            "cron_id": cron_id,
+        },
+        session_id=session_id,
+        event_id=message_id,
+    )
+
+    _event_id_to_message_id[event.event_id] = message_id
+    print(f"[push_cron_event] event_id={event.event_id} -> message_id={message_id}")
+
+    if session_id not in _cron_sse_queues:
+        _cron_sse_queues[session_id] = asyncio.Queue()
+    cron_queue = _cron_sse_queues[session_id]
+
+    print(f"[push_cron_event] Calling push_event for session {session_id}")
+    await _websocket_api.push_event(session_id, event)
+    print(f"[push_cron_event] push_event completed, consuming stream_events...")
+
+    lock = await get_stream_lock()
+    async with lock:
+        collected_events = []
+        async for stream_event in _websocket_api.stream_events(session_id):
+            print(
+                f"[push_cron_event] stream_event: type={stream_event.type}, event_id={stream_event.event_id}"
+            )
+            collected_events.append(stream_event)
+            if stream_event.type in ("stream.end", "stream.error"):
+                break
+
+    print(
+        f"[push_cron_event] Collected {len(collected_events)} events, pushing to cron_queue"
+    )
+
+    await cron_queue.put(
+        {
+            "message_id": message_id,
+            "cron_id": cron_id,
+            "task_id": task_id,
+            "task_name": task_name,
+            "trigger_time": trigger_time,
+            "events": collected_events,
+        }
+    )
+
+    _unread_counts[session_id] = _unread_counts.get(session_id, 0) + 1
+    print(
+        f"[push_cron_event] Done, unread_counts[{session_id}] = {_unread_counts[session_id]}"
+    )
+
 
 def set_websocket_api(api):
     """设置 WebSocket 使用的 API 实例"""
     global _websocket_api
     _websocket_api = api
+    event_bus = get_event_bus()
+    event_bus.set_api(api)
+
+    cron_scheduler = get_cron_scheduler()
+    cron_scheduler.set_push_callback(push_cron_event)
 
 
 class SendMessageRequest(BaseModel):
@@ -521,6 +672,270 @@ async def stream_messages(session_id: str):
             "X-Accel-Buffering": "no",
         },
     )
+
+
+class ChatRequest(BaseModel):
+    text: str
+    client_message_id: Optional[str] = ""
+
+
+@router.post("/api/chat/{session_id}")
+async def chat_send_and_stream(session_id: str, request: ChatRequest):
+    """发送消息并通过 SSE 流式返回响应"""
+    if _websocket_api is None:
+        raise HTTPException(status_code=500, detail="API not initialized")
+
+    message_id = f"msg_{uuid.uuid4().hex[:12]}"
+    client_message_id = request.client_message_id or f"client_{uuid.uuid4().hex[:8]}"
+
+    from fastmind import Event
+
+    user_event = Event(
+        type="user.message",
+        payload={
+            "text": request.text,
+            "client_message_id": client_message_id,
+            "message_id": message_id,
+            "channel": "webui",
+        },
+        session_id=session_id,
+        event_id=message_id,
+    )
+
+    _event_id_to_message_id[message_id] = message_id
+
+    async def sse_generator():
+        try:
+            yield f"event: message.start\n"
+            yield f"id: {message_id}\n"
+            yield f"data: {json.dumps({'role': 'assistant', 'content': '', 'timestamp': time.time()})}\n\n"
+
+            print(f"[chat_send_and_stream] Calling push_event for session {session_id}")
+            await _websocket_api.push_event(session_id, user_event)
+            print(f"[chat_send_and_stream] push_event completed")
+
+            lock = await get_stream_lock()
+            async with lock:
+                async for stream_event in _websocket_api.stream_events(session_id):
+                    # print(
+                    #     f"[chat_send_and_stream] stream_event: type={stream_event.type}, event_id={stream_event.event_id}"
+                    # )
+                    sse_event = _transform_event_to_sse(stream_event, message_id)
+                    if sse_event is None:
+                        continue
+                    yield f"id: {sse_event['id']}\n"
+                    yield f"event: {sse_event['event']}\n"
+                    yield f"data: {json.dumps(sse_event['data'])}\n\n"
+
+                    if stream_event.type in ("stream.end", "error"):
+                        break
+
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            yield f"event: error\n"
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+    return StreamingResponse(
+        sse_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.get("/api/chat/stream/{session_id}")
+async def chat_stream_subscribe(session_id: str):
+    """订阅 SSE 流
+
+    用于接收 AI 响应。
+    注意：Cron 消息请使用 /api/cron/stream/{session_id}
+    """
+    if _websocket_api is None:
+        raise HTTPException(status_code=500, detail="API not initialized")
+
+    async def sse_generator():
+        try:
+            yield f"event: connected\n"
+            yield f"data: {{}}\n\n"
+
+            session = _websocket_api.get_session(session_id)
+            if not session:
+                yield f"event: session_waiting\n"
+                yield f"data: {json.dumps({'message': 'Waiting for session...'})}\n\n"
+
+                for _ in range(60):
+                    await asyncio.sleep(1)
+                    session = _websocket_api.get_session(session_id)
+                    if session:
+                        break
+
+                if not session:
+                    yield f"event: session_timeout\n"
+                    yield f"data: {json.dumps({'message': 'Session timeout'})}\n\n"
+                    return
+
+            async for event in _websocket_api.stream_events(session_id):
+                if event.type == "cron.message":
+                    continue
+                msg_id = event.payload.get("message_id")
+                if not msg_id:
+                    msg_id = (
+                        f"evt_{event.event_id[:8]}"
+                        if event.event_id
+                        else f"unk_{time.time()}"
+                    )
+                sse_event = _transform_event_to_sse(event, msg_id)
+                if sse_event is None:
+                    continue
+                yield f"id: {sse_event['id']}\n"
+                yield f"event: {sse_event['event']}\n"
+                yield f"data: {json.dumps(sse_event['data'])}\n\n"
+
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            yield f"event: error\n"
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+    return StreamingResponse(
+        sse_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.get("/api/cron/stream/{session_id}")
+async def cron_stream_subscribe(session_id: str):
+    """订阅 Cron 消息 SSE 流
+
+    用于接收定时任务的推送消息和 AI 响应。
+    """
+    if session_id not in _cron_sse_queues:
+        _cron_sse_queues[session_id] = asyncio.Queue()
+
+    queue = _cron_sse_queues[session_id]
+
+    async def sse_generator():
+        try:
+            print(f"[cron_stream] SSE connection opened for session {session_id}")
+            yield f"event: connected\n"
+            yield f"data: {{}}\n\n"
+
+            while True:
+                try:
+                    event_data = await asyncio.wait_for(queue.get(), timeout=30)
+                    message_id = event_data.get("message_id", "")
+                    cron_id = event_data.get("cron_id", "")
+                    task_id = event_data.get("task_id", "unknown")
+                    task_name = event_data.get("task_name", "unknown")
+                    trigger_time = event_data.get("trigger_time", "")
+                    collected_events = event_data.get("events", [])
+
+                    print(
+                        f"[cron_stream] Received cron data: message_id={message_id}, cron_id={cron_id}, events_count={len(collected_events)}"
+                    )
+
+                    yield f"id: {cron_id}\n"
+                    yield f"event: cron.message\n"
+                    yield f"data: {json.dumps({'message_id': message_id, 'task_id': task_id, 'task_name': task_name, 'content': '', 'cron_id': cron_id, 'trigger_time': trigger_time})}\n\n"
+
+                    for stream_event in collected_events:
+                        sse_event = _transform_event_to_sse(stream_event, message_id)
+                        if sse_event is None:
+                            continue
+                        print(
+                            f"[cron_stream] Yielding event: type={sse_event['event']}, id={sse_event['id']}"
+                        )
+                        yield f"id: {sse_event['id']}\n"
+                        yield f"event: {sse_event['event']}\n"
+                        yield f"data: {json.dumps(sse_event['data'])}\n\n"
+
+                except asyncio.TimeoutError:
+                    yield f": heartbeat\n\n"
+
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            yield f"event: error\n"
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+    return StreamingResponse(
+        sse_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+def _transform_event_to_sse(event, target_message_id: str = None) -> Optional[dict]:
+    """将 FastMind Event 转换为 SSE 事件"""
+    event_map = {
+        "stream.chunk": "message.chunk",
+        "stream.thinking": "message.thinking",
+        "stream.tool_start": "message.tool_start",
+        "stream.fragment": "message.tool_start",
+        "stream.end": "message.end",
+        "stream.error": "error",
+        "cron.message": "cron.message",
+        "user.message": None,
+    }
+
+    sse_event_type = event_map.get(event.type)
+    if sse_event_type is None:
+        return None
+
+    if event.type == "cron.message":
+        msg_id = target_message_id or f"cron_{event.payload.get('task_id', 'unknown')}"
+    elif target_message_id:
+        msg_id = target_message_id
+    else:
+        msg_id = event.payload.get("message_id", "unknown")
+
+    if sse_event_type == "message.tool_start":
+        tool_calls = event.payload.get("tool_calls", [])
+        tool_info_parts = []
+        for tc in tool_calls:
+            func_name = tc.get("function", {}).get("name", "unknown")
+            args_str = tc.get("function", {}).get("arguments", "")
+            try:
+                args_obj = json.loads(args_str) if args_str else {}
+                if isinstance(args_obj, dict):
+                    first_arg = next(
+                        iter(args_obj.values()), args_str[:50] if args_str else ""
+                    )
+                else:
+                    first_arg = str(args_obj)[:50] if args_str else ""
+            except:
+                first_arg = args_str[:50] if args_str else ""
+            tool_info_parts.append(
+                f"{func_name}({first_arg})" if first_arg else func_name
+            )
+        tool_info_str = (
+            "[执行工具: " + " | ".join(tool_info_parts) + "]"
+            if tool_info_parts
+            else "[正在执行工具...]"
+        )
+        data = {
+            "tool_calls": tool_calls,
+            "tool_info": tool_info_str,
+        }
+    elif sse_event_type == "error":
+        data = {"error": event.payload.get("error", "unknown error")}
+    else:
+        data = event.payload
+
+    return {"id": msg_id, "event": sse_event_type, "data": data}
 
 
 @router.websocket("/ws")

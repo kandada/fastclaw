@@ -2,16 +2,15 @@
 
 import pytest
 import asyncio
-from unittest.mock import AsyncMock, patch, MagicMock
-from core.app import app, fastclaw_agent, route, graph
+
+from core.app import app, route, graph
 from fastmind import Event
 
 
 class TestStreamingAgent:
     """流式 Agent 测试"""
 
-    @pytest.mark.asyncio
-    async def test_agent_stream_flag(self):
+    def test_agent_stream_flag(self):
         """测试 Agent 是否启用了流式"""
         assert app is not None
         graphs = app._graphs
@@ -19,7 +18,6 @@ class TestStreamingAgent:
 
     def test_agent_exists(self):
         """测试 Agent 存在"""
-        # Agent 通过装饰器注册
         assert app is not None
 
 
@@ -58,7 +56,6 @@ class TestGraph:
 
     def test_graph_entry_point(self):
         """测试图有入口点"""
-        # Graph 被注册到 app
         assert app is not None
         main_graph = app.get_graph("main")
         assert main_graph is not None

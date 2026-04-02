@@ -1,11 +1,8 @@
 """Gateway 测试"""
 
 import pytest
-import json
-import tempfile
-import shutil
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+import uuid
+from tests.conftest import cleanup_test_session
 
 
 class TestRouter:
@@ -37,6 +34,8 @@ class TestRouter:
             assert "session_id" in data
             assert "agent_id" in data
 
+            cleanup_test_session(data["session_id"])
+
     def test_session_create_with_agent(self):
         """测试指定 agent 创建 session"""
         from fastapi.testclient import TestClient
@@ -45,10 +44,12 @@ class TestRouter:
         server = GatewayServer()
 
         with TestClient(server.app) as client:
-            response = client.post("/api/sessions", json={"agent_id": "custom_agent"})
+            response = client.post("/api/sessions", json={"agent_id": "main_agent"})
             assert response.status_code == 200
             data = response.json()
-            assert data["agent_id"] == "custom_agent"
+            assert data["agent_id"] == "main_agent"
+
+            cleanup_test_session(data["session_id"])
 
     def test_session_list(self):
         """测试列出 sessions"""
@@ -58,12 +59,15 @@ class TestRouter:
         server = GatewayServer()
 
         with TestClient(server.app) as client:
-            client.post("/api/sessions", json={})
+            response = client.post("/api/sessions", json={})
+            session_id = response.json()["session_id"]
 
             response = client.get("/api/sessions")
             assert response.status_code == 200
             data = response.json()
             assert isinstance(data, list)
+
+            cleanup_test_session(session_id)
 
     def test_session_get(self):
         """测试获取指定 session"""
@@ -80,6 +84,8 @@ class TestRouter:
             assert response.status_code == 200
             data = response.json()
             assert data["session_id"] == session_id
+
+            cleanup_test_session(session_id)
 
     def test_session_get_not_found(self):
         """测试获取不存在的 session"""
@@ -104,11 +110,13 @@ class TestRouter:
             session_id = create_resp.json()["session_id"]
 
             response = client.patch(
-                f"/api/sessions/{session_id}", json={"agent_id": "new_agent"}
+                f"/api/sessions/{session_id}", json={"agent_id": "main_agent"}
             )
             assert response.status_code == 200
             data = response.json()
-            assert data["agent_id"] == "new_agent"
+            assert data["agent_id"] == "main_agent"
+
+            cleanup_test_session(session_id)
 
     def test_session_delete(self):
         """测试删除 session"""
@@ -178,12 +186,12 @@ class TestSettingsAPI:
 
         with TestClient(server.app) as client:
             response = client.put(
-                "/api/settings", json={"default_agent_id": "test_agent"}
+                "/api/settings", json={"default_agent_id": "main_agent"}
             )
             assert response.status_code == 200
             data = response.json()
             assert data["status"] == "saved"
-            assert data["settings"]["default_agent_id"] == "test_agent"
+            assert data["settings"]["default_agent_id"] == "main_agent"
 
 
 class TestCronAPI:
@@ -210,9 +218,11 @@ class TestCronAPI:
 
         server = GatewayServer()
 
+        task_id = f"test_cron_{uuid.uuid4().hex[:8]}"
+
         with TestClient(server.app) as client:
             task_data = {
-                "id": "test_cron_1",
+                "id": task_id,
                 "name": "Test Task",
                 "schedule": "0 9 * * *",
                 "description": "Test description",
@@ -223,7 +233,69 @@ class TestCronAPI:
             assert response.status_code == 200
             data = response.json()
             assert data["status"] == "created"
-            assert data["task"]["id"] == "test_cron_1"
+            assert data["task"]["id"] == task_id
+
+            client.delete(f"/api/crons/{task_id}")
+
+    def test_crons_create_all_stars_rejected(self):
+        """测试全*的cron表达式被拒绝"""
+        from fastapi.testclient import TestClient
+        from gateway.server import GatewayServer
+
+        server = GatewayServer()
+        task_id = f"test_cron_{uuid.uuid4().hex[:8]}"
+
+        with TestClient(server.app) as client:
+            task_data = {
+                "id": task_id,
+                "name": "Test Task",
+                "schedule": "* * * * *",
+                "agent_id": "main_agent",
+            }
+            response = client.post("/api/crons", json=task_data)
+            assert response.status_code == 400
+            assert "cannot be all" in response.json()["detail"]
+
+    def test_crons_create_missing_required_field(self):
+        """测试缺少必填字段被拒绝"""
+        from fastapi.testclient import TestClient
+        from gateway.server import GatewayServer
+
+        server = GatewayServer()
+        task_id = f"test_cron_{uuid.uuid4().hex[:8]}"
+
+        with TestClient(server.app) as client:
+            task_data = {
+                "id": task_id,
+                "name": "Test Task",
+            }
+            response = client.post("/api/crons", json=task_data)
+            assert response.status_code == 400
+            assert "schedule" in response.json()["detail"]
+
+    def test_crons_create_defaults_applied(self):
+        """测试默认值被正确填充"""
+        from fastapi.testclient import TestClient
+        from gateway.server import GatewayServer
+
+        server = GatewayServer()
+        task_id = f"test_cron_{uuid.uuid4().hex[:8]}"
+
+        with TestClient(server.app) as client:
+            task_data = {
+                "id": task_id,
+                "name": "Test Task",
+                "schedule": "0 9 * * *",
+            }
+            response = client.post("/api/crons", json=task_data)
+            assert response.status_code == 200
+            data = response.json()
+            assert data["task"]["description"] == ""
+            assert data["task"]["agent_id"] == "main_agent"
+            assert data["task"]["enabled"] is True
+            assert data["task"]["session_id"] is None
+
+            client.delete(f"/api/crons/{task_id}")
 
     def test_crons_delete(self):
         """测试删除 cron 任务"""
@@ -232,11 +304,13 @@ class TestCronAPI:
 
         server = GatewayServer()
 
+        task_id = f"test_cron_del_{uuid.uuid4().hex[:8]}"
+
         with TestClient(server.app) as client:
             client.post(
                 "/api/crons",
                 json={
-                    "id": "test_cron_del",
+                    "id": task_id,
                     "name": "To Delete",
                     "schedule": "0 9 * * *",
                     "agent_id": "main_agent",
@@ -244,7 +318,7 @@ class TestCronAPI:
                 },
             )
 
-            response = client.delete("/api/crons/test_cron_del")
+            response = client.delete(f"/api/crons/{task_id}")
             assert response.status_code == 200
             assert response.json()["status"] == "deleted"
 

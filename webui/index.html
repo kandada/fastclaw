@@ -17,15 +17,20 @@
         .ws-dot.connected { background: #4CAF50; }
         .ws-dot.disconnected { background: #f56c6c; }
         .ws-dot.connecting { background: #E6A23C; }
+        .ws-dot.standby { background: #4CAF50; }
         .main { flex: 1; overflow: hidden; display: flex; }
         .chat-layout { flex: 1; display: flex; overflow: hidden; }
         .sidebar { width: 260px; border-right: 1px solid #e0e0e0; background: #fafafa; display: flex; flex-direction: column; }
         .sidebar-header { padding: 16px; border-bottom: 1px solid #e0e0e0; }
         .sidebar-list { flex: 1; overflow-y: auto; padding: 8px; }
-        .session-item { padding: 10px 12px; border-radius: 6px; cursor: pointer; margin-bottom: 4px; }
+        .session-item { padding: 10px 12px; border-radius: 6px; cursor: pointer; margin-bottom: 4px; display: flex; align-items: center; }
         .session-item:hover, .session-item.active { background: #e8e8e8; }
+        .session-item-content { flex: 1; overflow: hidden; }
         .session-name { font-size: 14px; }
         .session-time { font-size: 11px; color: #888; }
+        .session-menu { opacity: 0; padding: 4px 8px; border-radius: 4px; }
+        .session-item:hover .session-menu { opacity: 1; }
+        .session-menu:hover { background: #d0d0d0; }
         .chat-main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
         .chat-header { padding: 12px 20px; border-bottom: 1px solid #e0e0e0; display: flex; justify-content: space-between; align-items: center; }
         .chat-messages { flex: 1; overflow-y: auto; padding: 20px; }
@@ -88,12 +93,9 @@
         <div class="header">
             <span class="header-title">FastClaw</span>
             <div class="ws-status">
-                <span class="ws-dot" :class="wsConnected === true ? 'connected' : (wsConnected === false ? 'disconnected' : 'connecting')"></span>
-                <span>{{ wsConnected === true ? 'Connected' : (wsConnected === false ? 'Disconnected' : 'Connecting...') }}</span>
+                <span class="ws-dot" :class="wsConnected === true ? 'connected' : (wsConnected === false ? 'standby' : 'connecting')"></span>
+                <span>{{ wsConnected === true ? 'Receiving' : (wsConnected === false ? 'Standby' : 'Connecting...') }}</span>
             </div>
-            <el-button size="small" circle style="margin-right:8px;padding:8px" @click="reconnect" title="Reconnect to Server">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-            </el-button>
             <el-tabs v-model="activeTab" @tab-change="onTabChange" class="header-tabs">
                 <el-tab-pane label="Chat" name="chat"></el-tab-pane>
                 <el-tab-pane label="Cron" name="cron"></el-tab-pane>
@@ -108,12 +110,27 @@
                         <el-input v-model="searchText" placeholder="Search sessions..." clearable style="margin-top:12px"></el-input>
                     </div>
                     <div class="sidebar-list">
-                        <div v-for="s in filteredSessions" :key="s.session_id"
-                             class="session-item" :class="{active: s.session_id === currentSessionId}"
-                             @click="selectSession(s.session_id)">
-                            <div class="session-name">{{ s.name || s.session_id }}</div>
+                    <div v-for="s in filteredSessions" :key="s.session_id"
+                         class="session-item" :class="{active: s.session_id === currentSessionId}">
+                        <div class="session-item-content" @click="selectSession(s.session_id)">
+                            <div class="session-name">
+                                <span v-if="unreadCounts[s.session_id] > 0" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#f56c6c;margin-right:6px;"></span>
+                                {{ s.name || s.session_id }}
+                            </div>
                             <div class="session-time">{{ formatTime(s.last_active_time) }}</div>
                         </div>
+                        <el-dropdown trigger="click" @command="(cmd) => handleSessionMenu(cmd, s.session_id)">
+                            <span class="session-menu" @click.stop><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg></span>
+                            <template #dropdown>
+                                <el-dropdown-menu>
+                                    <el-dropdown-item command="rename">Rename</el-dropdown-item>
+                                    <el-dropdown-item command="bind">Bind Agent</el-dropdown-item>
+                                    <el-dropdown-item command="clear">Clear</el-dropdown-item>
+                                    <el-dropdown-item command="delete" divided>Delete</el-dropdown-item>
+                                </el-dropdown-menu>
+                            </template>
+                        </el-dropdown>
+                    </div>
                     </div>
                 </div>
                 <div class="chat-main">
@@ -221,7 +238,7 @@
                             </el-select>
                         </el-form-item>
                         <el-form-item label="Session">
-                            <el-select v-model="cronForm.session_id" style="width:100%" clearable>
+                            <el-select v-model="cronForm.session_id" style="width:100%" clearable filterable allow-create default-first-option placeholder="Select or paste session_id">
                                 <el-option v-for="s in sessions" :key="s.session_id" :label="s.name || s.session_id" :value="s.session_id"></el-option>
                             </el-select>
                         </el-form-item>
@@ -298,6 +315,25 @@
                             <el-button type="primary" style="background:#000;border-color:#000" @click="saveAgent">Save</el-button>
                         </template>
                     </el-dialog>
+                </div>
+                <div style="margin-bottom:32px">
+                    <h3 style="font-size:16px;font-weight:600;margin-bottom:16px;padding-bottom:8px;border-bottom:1px solid #e0e0e0">Extra Workspaces</h3>
+                    <p style="color:#666;font-size:12px;margin-bottom:12px">Additional directories that agents can access for commands and file operations.</p>
+                    <div class="toolbar">
+                        <el-input v-model="newExtraWorkspace" style="width:300px" placeholder="Directory path" @keyup.enter="addExtraWorkspace"></el-input>
+                        <el-button type="primary" style="background:#000;border-color:#000" @click="addExtraWorkspace">Add</el-button>
+                    </div>
+                    <el-table :data="settings.extra_workspaces || []" stripe style="table-layout:fixed;width:100%">
+                        <colgroup><col style="width:50%"><col style="width:50%"></colgroup>
+                        <el-table-column label="Dir">
+                            <template #default="{row}">{{ row }}</template>
+                        </el-table-column>
+                        <el-table-column label="Actions">
+                            <template #default="{row}">
+                                <el-button @click="removeExtraWorkspace(row)" type="danger" plain size="small">Delete</el-button>
+                            </template>
+                        </el-table-column>
+                    </el-table>
                 </div>
                 <div style="margin-bottom:32px">
                     <h3 style="font-size:16px;font-weight:600;margin-bottom:16px;padding-bottom:8px;border-bottom:1px solid #e0e0e0">Commands</h3>
@@ -424,15 +460,18 @@
                 const isStreaming = ref(false);
                 const wsConnected = ref(null);
                 const searchText = ref('');
-                let ws = null;
-                let pendingAssistantMsg = null;
+                let chatEventSource = null;
+                let cronEventSource = null;
+                const messageBuffer = new Map();
+                let currentStreamingMsg = null;
 
                 const cronTasks = ref([]);
                 const cronDialogVisible = ref(false);
                 const editingCron = ref(null);
                 const cronForm = ref({ name: '', schedule: '', description: '', agent_id: 'main_agent', session_id: '', enabled: true });
                 const agents = ref([]);
-                const settings = ref({ default_agent_id: 'main_agent' });
+                const settings = ref({ default_agent_id: 'main_agent', extra_workspaces: [] });
+                const newExtraWorkspace = ref('');
                 const bindAgentDialogVisible = ref(false);
                 const bindAgentForm = ref({ agent_id: '' });
                 const renameDialogVisible = ref(false);
@@ -440,6 +479,7 @@
                 const agentDialogVisible = ref(false);
                 const editingAgent = ref(null);
                 const agentForm = ref({ name: '', description: '', soul_content: '', user_content: '', agent_content: '', llm: {}, context: {} });
+                const unreadCounts = ref({});
 
                 const filteredSessions = computed(() => {
                     let result = sessions.value;
@@ -514,6 +554,21 @@
                     } catch (e) { console.error('loadSessions error', e); }
                 }
 
+                async function loadUnreadCounts() {
+                    try {
+                        const r = await fetch('/api/sessions/unread');
+                        const data = await r.json();
+                        unreadCounts.value = data.unread_counts || {};
+                    } catch (e) { console.error('loadUnreadCounts error', e); }
+                }
+
+                async function clearUnreadCount(sessionId) {
+                    try {
+                        await fetch(`/api/sessions/${sessionId}/unread/clear`, { method: 'POST' });
+                        unreadCounts.value[sessionId] = 0;
+                    } catch (e) { console.error('clearUnreadCount error', e); }
+                }
+
                 async function createSession() {
                     try {
                         const r = await fetch('/api/sessions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
@@ -528,6 +583,7 @@
                     disconnect();
                     currentSessionId.value = id;
                     messages.value = [];
+                    clearUnreadCount(id);
                     try {
                         const r = await fetch(`/api/sessions/${id}/messages`);
                         const loadedMessages = await r.json();
@@ -538,7 +594,6 @@
                             return msg;
                         });
                     } catch (e) {}
-                    connect(id);
                     await nextTick();
                     scrollBottom();
                 }
@@ -548,103 +603,180 @@
                     if (el) el.scrollTop = el.scrollHeight;
                 }
 
-                function connect(sessionId) {
+function connect(sessionId) {
                     disconnect();
-                    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-                    ws = new WebSocket(`${proto}//${location.host}/ws?session_id=${sessionId}`);
-                    pendingAssistantMsg = null;
                     
-                    function handleMessage(data) {
-                        // 忽略不属于当前会话的消息
-                        if (data.session_id && data.session_id !== currentSessionId.value) {
-                            return;
-                        }
-                        
-                        if (data.type === 'stream.chunk') {
-                            const delta = data.payload.delta;
-                            isStreaming.value = true;
-                            if (pendingAssistantMsg) {
-                                pendingAssistantMsg.content += delta;
-                            } else {
-                                const last = messages.value[messages.value.length - 1];
-                                if (last && last.role === 'assistant' && !last.tool_calls && !last._isStreaming) {
-                                    last.content += delta;
-                                } else {
-                                    messages.value.push({ role: 'assistant', content: delta, _isStreaming: true });
-                                    pendingAssistantMsg = messages.value[messages.value.length - 1];
-                                }
-                            }
-                            requestAnimationFrame(() => scrollBottom());
-                        } else if (data.type === 'stream.tool_start') {
-                            pendingAssistantMsg = null;
-                            const last = messages.value[messages.value.length - 1];
-                            const toolInfo = data.payload.tool_info || '';
-                            if (last && last.role === 'assistant' && !last.tool_calls && last._isStreaming) {
-                                last.content += '<br>' + toolInfo;
-                                last.tool_calls = data.payload.tool_calls || null;
-                                last._isStreaming = false;
-                            } else {
-                                messages.value.push({ role: 'assistant', content: toolInfo, tool_calls: data.payload.tool_calls || null, _isStreaming: true });
-                                pendingAssistantMsg = messages.value[messages.value.length - 1];
-                            }
-                            isStreaming.value = true;
-                            nextTick(scrollBottom());
-                        } else if (data.type === 'stream.thinking') {
-                            const delta = data.payload.delta;
-                            isStreaming.value = true;
-                            if (pendingAssistantMsg) {
-                                pendingAssistantMsg.thinking = (pendingAssistantMsg.thinking || '') + delta;
-                            } else {
-                                const last = messages.value[messages.value.length - 1];
-                                if (last && last.role === 'assistant' && !last.tool_calls && !last._isStreaming) {
-                                    last.thinking = (last.thinking || '') + delta;
-                                } else {
-                                    messages.value.push({ role: 'assistant', content: '', thinking: delta, _isStreaming: true });
-                                    pendingAssistantMsg = messages.value[messages.value.length - 1];
-                                }
-                            }
-                            requestAnimationFrame(() => scrollBottom());
-                        } else if (data.type === 'stream.end') {
-                            isStreaming.value = false;
-                            pendingAssistantMsg = null;
-                            messages.value.forEach(m => m._isStreaming = false);
-                        } else if (data.type === 'stream.error') {
-                            isStreaming.value = false;
-                            pendingAssistantMsg = null;
-                            messages.value.forEach(m => m._isStreaming = false);
-                            messages.value.push({ role: 'assistant', content: 'Error: ' + data.payload.error });
-                        }
-                    }
+                    const chatUrl = `/api/chat/stream/${sessionId}`;
+                    chatEventSource = new EventSource(chatUrl);
                     
-                    ws.onmessage = (e) => {
-                        try {
-                            const data = JSON.parse(e.data);
-                            handleMessage(data);
-                        } catch (err) {
-                            console.error('WebSocket message parse error:', err);
-                        }
+                    chatEventSource.onerror = (err) => {
+                        console.log('Chat SSE onerror');
                     };
-                    ws.onclose = () => { 
-                        isStreaming.value = false;
-                        wsConnected.value = false;
-                        pendingAssistantMsg = null;
+                    
+                    chatEventSource.onclose = (err) => {
+                        console.log('Chat SSE onclose');
                     };
-                    ws.onerror = (e) => {
-                        console.error('WebSocket error:', e);
-                        isStreaming.value = false;
-                        wsConnected.value = false;
-                    };
-                    ws.onopen = () => {
-                        console.log('WebSocket connected');
+                    
+                    chatEventSource.onopen = () => {
+                        console.log('Chat SSE Connected');
                         wsConnected.value = true;
                     };
+                    
+                    chatEventSource.addEventListener('connected', (e) => {
+                        console.log('Chat SSE connection confirmed');
+                    });
+                    
+                    chatEventSource.addEventListener('session_waiting', (e) => {
+                        console.log('Session waiting...');
+                        wsConnected.value = true;
+                    });
+                    
+                    chatEventSource.addEventListener('session_timeout', (e) => {
+                        console.log('Session timeout');
+                        wsConnected.value = false;
+                    });
+                    
+                    chatEventSource.addEventListener('message.start', (e) => {
+                        const data = JSON.parse(e.data);
+                        const eventId = e.lastEventId;
+                        let msg = messages.value.find(m => m.id === eventId);
+                        if (msg) {
+                            msg._isStreaming = true;
+                            messageBuffer.set(eventId, msg);
+                        } else {
+                            msg = {
+                                id: eventId,
+                                role: data.role || 'assistant',
+                                content: '',
+                                thinking: '',
+                                _isStreaming: true,
+                                timestamp: data.timestamp || Date.now()
+                            };
+                            messages.value.push(msg);
+                            messageBuffer.set(eventId, msg);
+                        }
+                        currentStreamingMsg = msg;
+                        requestAnimationFrame(() => scrollBottom());
+                    });
+                    
+                    chatEventSource.addEventListener('message.chunk', (e) => {
+                        const data = JSON.parse(e.data);
+                        let msg = messageBuffer.get(e.lastEventId);
+                        if (!msg && currentStreamingMsg) {
+                            msg = currentStreamingMsg;
+                            messageBuffer.set(e.lastEventId, msg);
+                        }
+                        if (msg) {
+                            msg.content += data.delta || '';
+                            requestAnimationFrame(() => scrollBottom());
+                        }
+                    });
+                    
+                    chatEventSource.addEventListener('message.thinking', (e) => {
+                        const data = JSON.parse(e.data);
+                        let msg = messageBuffer.get(e.lastEventId);
+                        if (!msg && currentStreamingMsg) {
+                            msg = currentStreamingMsg;
+                            messageBuffer.set(e.lastEventId, msg);
+                        }
+                        if (msg) {
+                            msg.thinking = (msg.thinking || '') + (data.delta || '');
+                            requestAnimationFrame(() => scrollBottom());
+                        }
+                    });
+                    
+                    chatEventSource.addEventListener('message.tool_start', (e) => {
+                        const data = JSON.parse(e.data);
+                        let msg = messageBuffer.get(e.lastEventId);
+                        if (!msg && currentStreamingMsg) {
+                            msg = currentStreamingMsg;
+                            messageBuffer.set(e.lastEventId, msg);
+                        }
+                        if (msg) {
+                            msg.content += (msg.content ? '<br>' : '') + (data.tool_info || '[执行工具...]');
+                            msg.tool_calls = data.tool_calls || null;
+                            msg._isStreaming = false;
+                            nextTick(scrollBottom());
+                        }
+                    });
+                    
+                    chatEventSource.addEventListener('message.end', (e) => {
+                        let msg = messageBuffer.get(e.lastEventId);
+                        if (!msg && currentStreamingMsg) {
+                            msg = currentStreamingMsg;
+                        }
+                        if (msg) {
+                            msg._isStreaming = false;
+                            if (msg.isCron) {
+                                const sessionId = currentSessionId.value;
+                                if (sessionId && unreadCounts.value[sessionId] !== undefined) {
+                                    unreadCounts.value[sessionId] = (unreadCounts.value[sessionId] || 0) + 1;
+                                }
+                            }
+                        }
+                        messageBuffer.delete(e.lastEventId);
+                        currentStreamingMsg = null;
+                        isStreaming.value = false;
+                    });
+                    
+                    chatEventSource.addEventListener('error', (e) => {
+                        console.log('[Chat SSE] Error event received', e);
+                        if (e.data) {
+                            let errorMsg = 'Unknown error';
+                            try {
+                                const data = JSON.parse(e.data);
+                                errorMsg = data.error || errorMsg;
+                            } catch (err) {
+                                console.error('Error parsing error event data:', err);
+                            }
+                            isStreaming.value = false;
+                            messages.value.push({ role: 'assistant', content: 'Error: ' + errorMsg });
+                        }
+                    });
+                    
+                    const cronUrl = `/api/cron/stream/${sessionId}`;
+                    cronEventSource = new EventSource(cronUrl);
+                    
+                    cronEventSource.onerror = (err) => {
+                        console.log('Cron SSE onerror');
+                    };
+                    
+                    cronEventSource.onclose = (err) => {
+                        console.log('Cron SSE onclose');
+                    };
+                    
+                    cronEventSource.onopen = () => {
+                        console.log('Cron SSE Connected');
+                    };
+                    
+                    cronEventSource.addEventListener('cron.message', (e) => {
+                        console.log('[Cron SSE] Received cron.message event', e);
+                        const data = JSON.parse(e.data);
+                        console.log('[Cron SSE] Parsed data:', data);
+                        const msg = {
+                            id: e.lastEventId,
+                            role: 'assistant',
+                            content: data.content || '',
+                            thinking: '',
+                            _isStreaming: false,
+                            isCron: true,
+                            taskId: data.task_id,
+                            taskName: data.task_name,
+                            triggerTime: data.trigger_time
+                        };
+                        console.log('[Cron SSE] Created message:', msg);
+                        messages.value.push(msg);
+                        requestAnimationFrame(() => scrollBottom());
+                    });
                 }
 
                 function disconnect() {
-                    if (ws) { ws.close(); ws = null; }
+                    if (chatEventSource) { chatEventSource.close(); chatEventSource = null; }
+                    if (cronEventSource) { cronEventSource.close(); cronEventSource = null; }
                     isStreaming.value = false;
                     wsConnected.value = false;
-                    pendingAssistantMsg = null;
+                    messageBuffer.clear();
+                    currentStreamingMsg = null;
                     messages.value.forEach(m => m._isStreaming = false);
                 }
 
@@ -684,37 +816,119 @@
                     const text = chatText.value.trim();
                     if (!text || !currentSessionId.value) return;
                     if (isStreaming.value) {
-                        // Agent 正在回复，禁止发送新消息
                         return;
                     }
                     chatText.value = '';
                     messages.value.push({ role: 'user', content: text });
                     isStreaming.value = true;
                     
-                    // Ensure WebSocket is connected before sending
-                    if (!ws || ws.readyState !== WebSocket.OPEN) {
-                        await new Promise((resolve) => {
-                            connect(currentSessionId.value);
-                            // Wait for connection to be established
-                            const checkOpen = setInterval(() => {
-                                if (ws && ws.readyState === WebSocket.OPEN) {
-                                    clearInterval(checkOpen);
-                                    resolve();
-                                }
-                            }, 50);
-                            // Timeout after 5 seconds
-                            setTimeout(() => {
-                                clearInterval(checkOpen);
-                                resolve();
-                            }, 5000);
+                    const clientMessageId = `client_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+                    const sessionId = currentSessionId.value;
+                    console.log('[sendMessage] Starting... sessionId:', sessionId);
+                    
+                    try {
+                        console.log('[sendMessage] Sending POST...');
+                        const response = await fetch(`/api/chat/${sessionId}`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                text: text,
+                                client_message_id: clientMessageId
+                            })
                         });
+                        console.log('[sendMessage] POST response received, status:', response.status);
+                        
+                        if (!response.ok) {
+                            console.error('[sendMessage] POST failed:', response.status);
+                            isStreaming.value = false;
+                            return;
+                        }
+                        
+                        // SSE is returned in the POST response body
+                        const reader = response.body.getReader();
+                        const decoder = new TextDecoder();
+                        let buffer = '';
+                        let currentEventType = '';
+                        let currentEventId = '';
+                        let currentEventData = {};
+                        
+                        const processSSEEvent = () => {
+                            console.log('[sendMessage] SSE event:', currentEventType, currentEventId);
+                            const msg = messages.value.find(m => m.id === currentEventId);
+                            
+                            if (currentEventType === 'message.chunk' && msg) {
+                                msg.content += currentEventData.delta || '';
+                                requestAnimationFrame(() => scrollBottom());
+                            } else if (currentEventType === 'message.thinking' && msg) {
+                                msg.thinking = (msg.thinking || '') + (currentEventData.delta || '');
+                                requestAnimationFrame(() => scrollBottom());
+                            } else if (currentEventType === 'message.tool_start' && msg) {
+                                msg.content += (msg.content ? '<br>' : '') + (currentEventData.tool_info || '[执行工具...]');
+                                msg.tool_calls = currentEventData.tool_calls || null;
+                                msg._isStreaming = false;
+                                nextTick(scrollBottom());
+                            } else if (currentEventType === 'message.end') {
+                                isStreaming.value = false;
+                                wsConnected.value = false;
+                            } else if (currentEventType === 'error') {
+                                isStreaming.value = false;
+                                wsConnected.value = false;
+                                messages.value.push({ role: 'assistant', content: 'Error: ' + (currentEventData.error || 'Unknown error') });
+                            }
+                        };
+                        
+                        const readEvents = () => {
+                            reader.read().then(({ done, value }) => {
+                                if (done) return;
+                                
+                                buffer += decoder.decode(value, { stream: true });
+                                const lines = buffer.split('\n');
+                                buffer = lines.pop() || '';
+                                
+                                for (const line of lines) {
+                                    if (line.startsWith('event:')) {
+                                        currentEventType = line.slice(6).trim();
+                                    } else if (line.startsWith('id:')) {
+                                        currentEventId = line.slice(3).trim();
+                                    } else if (line.startsWith('data:')) {
+                                        try {
+                                            currentEventData = JSON.parse(line.slice(5).trim());
+                                        } catch (e) {
+                                            currentEventData = {};
+                                        }
+                                    } else if (line === '') {
+                                        if (currentEventType === 'message.start') {
+                                            wsConnected.value = true;
+                                            const msg = {
+                                                id: currentEventId,
+                                                role: currentEventData.role || 'assistant',
+                                                content: '',
+                                                thinking: '',
+                                                _isStreaming: true,
+                                                timestamp: currentEventData.timestamp || Date.now()
+                                            };
+                                            messages.value.push(msg);
+                                            requestAnimationFrame(() => scrollBottom());
+                                        } else if (currentEventType) {
+                                            processSSEEvent();
+                                        }
+                                        currentEventType = '';
+                                        currentEventId = '';
+                                        currentEventData = {};
+                                    }
+                                }
+                                
+                                if (!done) readEvents();
+                            });
+                        };
+                        
+                        readEvents();
+                        
+                    } catch (err) {
+                        console.error('[sendMessage] Error:', err);
+                        isStreaming.value = false;
                     }
                     
-                    if (ws && ws.readyState === WebSocket.OPEN) {
-                        ws.send(JSON.stringify({ type: 'user.message', payload: { text }, session_id: currentSessionId.value }));
-                    } else {
-                        console.error('WebSocket not open, message not sent');
-                    }
                     await nextTick(scrollBottom);
                 }
 
@@ -740,7 +954,8 @@
                     } catch (e) { console.error(e); }
                 }
 
-                function showCronDialog(task = null) {
+                async function showCronDialog(task = null) {
+                    await loadSessions();
                     if (task) {
                         editingCron.value = task;
                         cronForm.value = { ...task };
@@ -782,6 +997,7 @@
                     try {
                         await fetch('/api/crons/trigger', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ task_id: task.id }) });
                         ElementPlus.ElMessage.success('Triggered');
+                        loadUnreadCounts();
                     } catch (e) { ElementPlus.ElMessage.error('Failed'); }
                 }
 
@@ -862,7 +1078,26 @@
                 }
 
                 function resetSettings() {
-                    settings.value = { default_agent_id: 'main_agent' };
+                    settings.value = { default_agent_id: 'main_agent', extra_workspaces: [] };
+                    saveSettings();
+                }
+
+                function addExtraWorkspace() {
+                    const dir = newExtraWorkspace.value.trim();
+                    if (!dir) return;
+                    if (!settings.value.extra_workspaces) {
+                        settings.value.extra_workspaces = [];
+                    }
+                    if (!settings.value.extra_workspaces.includes(dir)) {
+                        settings.value.extra_workspaces.push(dir);
+                        saveSettings();
+                    }
+                    newExtraWorkspace.value = '';
+                }
+
+                function removeExtraWorkspace(dir) {
+                    if (!settings.value.extra_workspaces) return;
+                    settings.value.extra_workspaces = settings.value.extra_workspaces.filter(d => d !== dir);
                     saveSettings();
                 }
 
@@ -917,9 +1152,24 @@
                     connect(currentSessionId.value);
                 }
 
+                async function handleSessionMenu(cmd, sessionId) {
+                    currentSessionId.value = sessionId;
+                    if (cmd === 'rename') {
+                        showRenameDialog();
+                    } else if (cmd === 'bind') {
+                        showBindAgentDialog();
+                    } else if (cmd === 'clear') {
+                        await clearSession();
+                    } else if (cmd === 'delete') {
+                        await deleteSession();
+                    }
+                }
+
                 onMounted(() => {
                     loadSessions();
                     loadAgents();
+                    loadUnreadCounts();
+                    setInterval(loadUnreadCounts, 5000);
                 });
 
                 function selectLatestSession() {
@@ -933,16 +1183,16 @@
 
                 return {
                     activeTab, sessions, currentSessionId, currentSessionName, messages, chatText,
-                    isStreaming, wsConnected, searchText, filteredSessions,
+                    isStreaming, wsConnected, searchText, filteredSessions, unreadCounts,
                     cronTasks, cronDialogVisible, editingCron, cronForm, agents, settings,
                     bindAgentDialogVisible, bindAgentForm,
                     renameDialogVisible, renameForm,
                     agentDialogVisible, editingAgent, agentForm,
-                    formatTime, getMsgContent, loadSessions, createSession, selectSession, selectLatestSession, sendMessage, clearSession, deleteSession,
+                    formatTime, getMsgContent, loadSessions, loadUnreadCounts, createSession, selectSession, selectLatestSession, sendMessage, clearSession, deleteSession,
                     loadCronTasks, showCronDialog, saveCron, deleteCron, toggleCron, triggerCron,
                     loadAgents, loadSettings, saveSettings, resetSettings, onTabChange,
                     showBindAgentDialog, bindAgent, showRenameDialog, renameSession, showAgentDialog, saveAgent, deleteAgent,
-                    copyMessage
+                    copyMessage, handleSessionMenu, newExtraWorkspace, addExtraWorkspace, removeExtraWorkspace
                 };
             }
         });

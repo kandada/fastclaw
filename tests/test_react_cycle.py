@@ -2,8 +2,8 @@
 
 import pytest
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
-from core.app import app, fastclaw_agent, route, graph, tool_node
+
+from core.app import route, graph
 from fastmind import Event
 
 
@@ -43,7 +43,6 @@ class TestReActFlow:
         """图包含 agent 和 tools 两个节点"""
         assert graph is not None
 
-        # Graph 节点
         agent_node = graph.get_node("agent")
         tools_node = graph.get_node("tools")
 
@@ -56,9 +55,7 @@ class TestReActFlow:
 
     def test_graph_has_conditional_edges(self):
         """图有条件边"""
-        # 验证图配置存在
         assert graph is not None
-        # 通过 get_next_node 验证边存在
         state = {"tool_calls": [{"id": "1"}]}
         event = Event("test", {}, "s1")
         next_node = graph.get_next_node("agent", state, event)
@@ -66,7 +63,6 @@ class TestReActFlow:
 
     def test_tools_node_connected_to_agent(self):
         """tools 节点连接到 agent"""
-        # 验证 tools 执行完后回到 agent
         state = {}
         event = Event("test", {}, "s1")
         next_node = graph.get_next_node("tools", state, event)
@@ -269,7 +265,6 @@ class TestReActStateTransitions:
         }
 
         assert "tool_results" in state
-        # tool_results 被处理后应该删除
         assert "tool_calls" not in state
 
     def test_state_end_marker(self):
@@ -287,27 +282,22 @@ class TestReActCycle:
 
     def test_complete_cycle_user_to_end(self):
         """完整循环：用户 -> agent -> 结束"""
-        # 1. 初始状态
         state = {"_session_id": "test", "messages": []}
         event = Event("user.message", {"text": "Hello"}, "test")
 
-        # 2. 用户消息添加
         state["messages"].append({"role": "user", "content": "Hello"})
 
-        # 3. route 检查（无 tool_calls）
         result = route(state, event)
-        assert result is None  # 结束
+        assert result is None
 
     def test_complete_cycle_with_tool(self):
         """完整循环：用户 -> agent -> tools -> agent -> 结束"""
-        # 1. 初始状态
         state = {
             "_session_id": "test",
             "messages": [{"role": "user", "content": "List files"}],
         }
         event = Event("user.message", {"text": "List files"}, "test")
 
-        # 2. agent 决定调用工具
         state["tool_calls"] = [
             {
                 "id": "call_1",
@@ -315,19 +305,16 @@ class TestReActCycle:
             }
         ]
 
-        # 3. route 到 tools
         result = route(state, event)
         assert result == "tools"
 
-        # 4. 工具执行后，tool_results 放入 state
         state["tool_results"] = [
             {"tool_call_id": "call_1", "tool_name": "run_shell", "result": "file1.txt"}
         ]
         del state["tool_calls"]
 
-        # 5. route 回到 agent
         result = route(state, event)
-        assert result is None  # 结束
+        assert result is None
 
     def test_multiple_tool_calls_cycle(self):
         """多工具调用循环"""
@@ -339,7 +326,6 @@ class TestReActCycle:
         }
         event = Event("user.message", {"text": "Check files and count lines"}, "test")
 
-        # 第一个工具调用
         state["tool_calls"] = [
             {
                 "id": "call_1",
@@ -348,7 +334,6 @@ class TestReActCycle:
         ]
         assert route(state, event) == "tools"
 
-        # 工具1结果
         state["tool_results"] = [
             {
                 "tool_call_id": "call_1",
@@ -365,7 +350,6 @@ class TestReActCycle:
             }
         )
 
-        # 第二个工具调用
         state["tool_calls"] = [
             {
                 "id": "call_2",
@@ -377,7 +361,6 @@ class TestReActCycle:
         ]
         assert route(state, event) == "tools"
 
-        # 工具2结果
         state["tool_results"] = [
             {
                 "tool_call_id": "call_2",
@@ -387,7 +370,6 @@ class TestReActCycle:
         ]
         del state["tool_calls"]
 
-        # 最终回复后结束
         state["messages"].append(
             {"role": "assistant", "content": "file1.txt has 42 lines."}
         )
