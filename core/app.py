@@ -99,12 +99,18 @@ def unload_early_messages(messages: list, threshold: int) -> tuple[list, list]:
 
 def load_settings() -> dict:
     settings_file = Path("workspace/data/settings.json")
+    defaults = {
+        "default_agent_id": "main_agent",
+        "run_shell_timeout": 60,
+        "run_skills_timeout": 60,
+    }
     if settings_file.exists():
         try:
-            return json.loads(settings_file.read_text())
+            settings = json.loads(settings_file.read_text())
+            return {**defaults, **settings}
         except:
             pass
-    return {"default_agent_id": "main_agent"}
+    return defaults
 
 
 def load_session_agent_id(session_id: str) -> str:
@@ -196,12 +202,19 @@ async def execute_skill(
     skill_path = Path(skill_dir) / "main.py"
     if not skill_path.exists():
         return f"Error: Skill '{skill_name}' not found at {skill_dir}"
+    settings = load_settings()
+    timeout = settings.get("run_skills_timeout", 30)
     try:
         spec = importlib.util.spec_from_file_location("skill_module", skill_path)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         if hasattr(module, "execute"):
-            result = await module.execute(**params)
+            try:
+                result = await asyncio.wait_for(
+                    module.execute(**params), timeout=timeout
+                )
+            except asyncio.TimeoutError:
+                return f"Error: Skill '{skill_name}' timed out ({timeout}s)"
             return str(result)
         else:
             return f"Error: Skill '{skill_name}' has no execute() function"
@@ -410,6 +423,9 @@ async def run_shell(command: str, state: dict = None) -> str:
     elif permission == "deny":
         return f"Permission denied: {reason}"
 
+    settings = load_settings()
+    timeout = settings.get("run_shell_timeout", 30)
+
     try:
         process = await asyncio.create_subprocess_shell(
             command,
@@ -417,13 +433,15 @@ async def run_shell(command: str, state: dict = None) -> str:
             stderr=asyncio.subprocess.PIPE,
         )
         try:
-            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=30)
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(), timeout=timeout
+            )
             output = (stdout or stderr).decode()
             return output[:5000]
         except asyncio.TimeoutError:
             process.kill()
             await process.wait()
-            return "Error: Command timed out (30s)"
+            return f"Error: Command timed out ({timeout}s)"
     except Exception as e:
         return f"Error: {str(e)}"
 

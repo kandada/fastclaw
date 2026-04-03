@@ -255,10 +255,20 @@
                 <div style="margin-bottom:32px">
                     <h3 style="font-size:16px;font-weight:600;margin-bottom:16px;padding-bottom:8px;border-bottom:1px solid #e0e0e0">General</h3>
                     <div class="settings-item">
-                        <label>Default Agent</label>
+                        <label style="width:200px">Default Agent</label>
                         <el-select v-model="settings.default_agent_id" style="width:300px" @change="saveSettings">
                             <el-option v-for="a in agents" :key="a.name" :label="a.name" :value="a.name"></el-option>
                         </el-select>
+                    </div>
+                    <div class="settings-item">
+                        <label style="width:200px">run_shell Timeout (s)</label>
+                        <el-input-number v-model="settings.run_shell_timeout" :min="1" :max="600" @change="saveSettings" />
+                    </div>
+                    <div class="settings-item">
+                        <label style="width:200px">run_skills Timeout (s)</label>
+                        <el-input-number v-model="settings.run_skills_timeout" :min="1" :max="600" @change="saveSettings" />
+                    </div>
+                    <div class="settings-item">
                         <el-button type="primary" style="background:#000;border-color:#000" @click="saveSettings">Save</el-button>
                         <el-button @click="resetSettings">Reset</el-button>
                     </div>
@@ -484,7 +494,7 @@
                 const editingCron = ref(null);
                 const cronForm = ref({ name: '', schedule: '', description: '', agent_id: 'main_agent', session_id: '', enabled: true });
                 const agents = ref([]);
-                const settings = ref({ default_agent_id: 'main_agent', extra_workspaces: [] });
+                const settings = ref({ default_agent_id: 'main_agent', run_shell_timeout: 60, run_skills_timeout: 60, extra_workspaces: [] });
                 const newExtraWorkspace = ref('');
                 const bindAgentDialogVisible = ref(false);
                 const bindAgentForm = ref({ agent_id: '' });
@@ -1097,7 +1107,7 @@ function connect(sessionId) {
                 }
 
                 function resetSettings() {
-                    settings.value = { default_agent_id: 'main_agent', extra_workspaces: [] };
+                    settings.value = { default_agent_id: 'main_agent', run_shell_timeout: 60, run_skills_timeout: 60, extra_workspaces: [] };
                     saveSettings();
                 }
 

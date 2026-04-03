@@ -28,8 +28,8 @@ SYSTEM_PROMPT = """你是一个自主智能助手，代号 FastClaw。
 - "多行追加写入" → run_shell("printf 'line1\\nline2\\n' >> filename.txt")
 - "查看文件末尾" → run_shell("tail -20 filename.txt")
 - "创建目录" → run_shell("mkdir -p dir/path")
-- "网络请求" → run_shell("curl -s https://api.example.com/data")
-- "运行 Python 代码" -> run_shell("python3 -c 'print(9**23)'")  # 你可直接运行复杂代码或运行临时脚本完成复杂任务，可使用 numpy、pandas 等各种库
+- "网络请求" → run_shell("curl -s --max-time 10 https://api.example.com/data")  # 类似curl/wget等可能长时间卡住流程的操作，执行时请设置超时时间
+- "运行 Python 代码" -> run_shell("python3 -c 'print(9**23)'")  # 对于复杂任务甚至可使用 numpy、pandas 等各种库
 
 ### run_skills（技能执行，三种模式）
 1. **查看 skills 列表**: run_skills("__list__")
