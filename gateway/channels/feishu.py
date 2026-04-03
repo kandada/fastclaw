@@ -158,6 +158,24 @@ class FeishuAdapter(ChannelAdapter):
         """断开飞书连接"""
         print("Feishu disconnected")
 
+    async def _get_fresh_token(self) -> str:
+        """获取新的tenant_access_token"""
+        import httpx
+
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
+                json={
+                    "app_id": self.app_id,
+                    "app_secret": self.app_secret,
+                },
+                timeout=30.0,
+            )
+            data = response.json()
+            if data.get("code") != 0:
+                raise Exception(f"Failed to get Feishu token: {data}")
+            return data.get("tenant_access_token")
+
     async def send_message(
         self, message: str, open_id: str = None, chat_id: str = None
     ):
@@ -168,6 +186,7 @@ class FeishuAdapter(ChannelAdapter):
 
         import httpx
 
+        self.tenant_token = await self._get_fresh_token()
         headers = {
             "Authorization": f"Bearer {self.tenant_token}",
             "Content-Type": "application/json",
