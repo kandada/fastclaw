@@ -12,6 +12,43 @@ from core.app import save_messages_to_jsonl, load_messages_from_jsonl
 class TestMessagesStorage:
     """消息存储测试"""
 
+    def test_save_and_load_with_timestamp(self):
+        """保存和加载消息验证timestamp"""
+        session_id = "test_timestamp"
+        messages = [
+            {"role": "user", "content": "Hello"},
+            {"role": "assistant", "content": "Hi there!"},
+            {"role": "tool", "tool_call_id": "call_1", "content": "tool result"},
+        ]
+
+        import tempfile
+        from pathlib import Path as RealPath
+
+        original_workspace = "workspace"
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            import core.app
+
+            original_workspace_attr = getattr(core.app, "workspace", None)
+            setattr(core.app, "workspace", tmpdir)
+
+            try:
+                from core.app import save_messages_to_jsonl, load_messages_from_jsonl
+
+                save_messages_to_jsonl(session_id, messages)
+                loaded = load_messages_from_jsonl(session_id)
+            finally:
+                if original_workspace_attr is not None:
+                    setattr(core.app, "workspace", original_workspace_attr)
+                elif hasattr(core.app, "workspace"):
+                    delattr(core.app, "workspace")
+
+        assert len(loaded) == 3
+        for msg in loaded:
+            assert "timestamp" not in msg
+            assert "role" in msg
+            assert "content" in msg
+
     def test_save_messages_creates_directory(self, tmp_path):
         """保存消息创建目录"""
         session_id = "test_session_save"

@@ -87,11 +87,12 @@ async def mock_api():
 
 @pytest_asyncio.fixture
 async def feishu_adapter(mock_api):
+    from unittest.mock import AsyncMock, patch
     from gateway.channels.feishu import FeishuAdapter
     from gateway.channels import handlers
 
     adapter = FeishuAdapter()
-    adapter.tenant_token = "mock_token"
+    adapter._tenant_token_mgr.get_token = AsyncMock(return_value="mock_token")
 
     sent_messages = []
 

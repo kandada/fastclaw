@@ -181,17 +181,28 @@ class TestSettingsAPI:
         """测试更新设置"""
         from fastapi.testclient import TestClient
         from gateway.server import GatewayServer
+        from pathlib import Path
+        import json
+
+        settings_file = Path("workspace/data/settings.json")
+        original_settings = None
+        if settings_file.exists():
+            original_settings = json.loads(settings_file.read_text())
 
         server = GatewayServer()
 
-        with TestClient(server.app) as client:
-            response = client.put(
-                "/api/settings", json={"default_agent_id": "main_agent"}
-            )
-            assert response.status_code == 200
-            data = response.json()
-            assert data["status"] == "saved"
-            assert data["settings"]["default_agent_id"] == "main_agent"
+        try:
+            with TestClient(server.app) as client:
+                response = client.put(
+                    "/api/settings", json={"default_agent_id": "main_agent"}
+                )
+                assert response.status_code == 200
+                data = response.json()
+                assert data["status"] == "saved"
+                assert data["settings"]["default_agent_id"] == "main_agent"
+        finally:
+            if original_settings is not None:
+                settings_file.write_text(json.dumps(original_settings, indent=2))
 
 
 class TestCronAPI:

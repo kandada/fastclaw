@@ -49,12 +49,13 @@ SYSTEM_PROMPT = """你是一个自主智能助手，代号 FastClaw。
 - 存储格式：JSONL（每行一条消息）
 - 当前会话ID：{session_id}
 
-当上下文接近阈值时，AI会自动卸载早期消息。如需恢复之前的内容，请使用：
+当上下文接近阈值时，AI会自动卸载早期消息。如需读取之前的内容，请使用：
 run_shell("cat workspace/data/sessions/{session_id}/messages.jsonl")
+或其他更精准的读取命令
 
 注意：
 - 读取文件后会看到完整的消息历史
-- 消息格式为JSON，包含role和content字段
+- 消息格式为JSON，包含role、content、timestamp字段
 
 
 ## 你对目录/文件的操作权限

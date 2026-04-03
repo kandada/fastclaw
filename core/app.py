@@ -31,6 +31,9 @@ def count_messages_tokens(messages: list) -> int:
     total = 0
     for msg in messages:
         total += calculate_tokens(msg.get("content", ""))
+        total += calculate_tokens(msg.get("reasoning_content", ""))
+        if msg.get("tool_calls"):
+            total += calculate_tokens(json.dumps(msg["tool_calls"]))
     return total
 
 
@@ -71,7 +74,11 @@ def save_messages_to_jsonl(session_id: str, messages: list) -> None:
     with open(messages_file, "w", encoding="utf-8") as f:
         for msg in messages:
             if msg.get("role") in ("user", "assistant", "system", "tool"):
-                f.write(json.dumps(msg, ensure_ascii=False) + "\n")
+                msg_with_ts = {
+                    **msg,
+                    "timestamp": datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+                }
+                f.write(json.dumps(msg_with_ts, ensure_ascii=False) + "\n")
 
 
 def load_messages_from_jsonl(session_id: str) -> list:
@@ -82,9 +89,19 @@ def load_messages_from_jsonl(session_id: str) -> list:
     for line in messages_file.read_text().splitlines():
         if line.strip():
             try:
-                messages.append(json.loads(line))
+                msg = json.loads(line)
+                msg.pop("timestamp", None)
+                messages.append(msg)
             except:
                 pass
+
+    agent_config = load_agent_config(load_session_agent_id(session_id))
+    context_config = agent_config.get("context", {})
+    threshold = context_config.get("unload_threshold_tokens", CONTEXT_UNLOAD_THRESHOLD)
+
+    if count_messages_tokens(messages) > threshold:
+        messages, _ = unload_early_messages(messages, threshold)
+
     return messages
 
 
