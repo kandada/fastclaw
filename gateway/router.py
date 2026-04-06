@@ -523,14 +523,20 @@ _unread_counts: Dict[str, int] = {}
 _pending_cron_messages: Dict[str, list] = {}
 
 _event_id_to_message_id: Dict[str, str] = {}
-_stream_consume_lock: asyncio.Lock = None
+
+# Per-session lock for stream consumption to prevent multiple SSE consumers from
+# competing for the same session's output_queue events.
+# Using per-session lock instead of a global lock allows different sessions to
+# stream concurrently while still preventing race conditions when multiple SSE
+# connections (e.g., multiple tabs) consume the same session's stream.
+_stream_consume_locks: Dict[str, asyncio.Lock] = {}
 
 
-async def get_stream_lock() -> asyncio.Lock:
-    global _stream_consume_lock
-    if _stream_consume_lock is None:
-        _stream_consume_lock = asyncio.Lock()
-    return _stream_consume_lock
+async def get_stream_lock(session_id: str) -> asyncio.Lock:
+    """Get or create a per-session lock for stream consumption."""
+    if session_id not in _stream_consume_locks:
+        _stream_consume_locks[session_id] = asyncio.Lock()
+    return _stream_consume_locks[session_id]
 
 
 async def push_cron_event(session_id: str, event_data: dict):
@@ -579,7 +585,7 @@ async def push_cron_event(session_id: str, event_data: dict):
     await _websocket_api.push_event(session_id, event)
     print(f"[push_cron_event] push_event completed, consuming stream_events...")
 
-    lock = await get_stream_lock()
+    lock = await get_stream_lock(session_id)
     async with lock:
         collected_events = []
         async for stream_event in _websocket_api.stream_events(session_id):
@@ -714,7 +720,7 @@ async def chat_send_and_stream(session_id: str, request: ChatRequest):
             await _websocket_api.push_event(session_id, user_event)
             print(f"[chat_send_and_stream] push_event completed")
 
-            lock = await get_stream_lock()
+            lock = await get_stream_lock(session_id)
             async with lock:
                 async for stream_event in _websocket_api.stream_events(session_id):
                     # print(
