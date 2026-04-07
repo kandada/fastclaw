@@ -478,7 +478,7 @@ class TestChannelCommands:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             original_db = "workspace/data/sessions/sessions.json"
-            temp_db = os.path.join(tmpdir, "sessions.json")
+            temp_db = Path(tmpdir) / "sessions.json"
 
             import gateway.channels.handlers as h
 
@@ -522,7 +522,7 @@ class TestChannelCommands:
         gateway.router._websocket_api = mock_api
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            temp_db = os.path.join(tmpdir, "sessions.json")
+            temp_db = Path(tmpdir) / "sessions.json"
 
             import gateway.channels.handlers as h
 
@@ -536,7 +536,7 @@ class TestChannelCommands:
                         "agent_id": "main_agent",
                     }
                 },
-                open(temp_db, "w"),
+                temp_db.open("w"),
             )
 
             try:
@@ -577,8 +577,8 @@ class TestChannelCommands:
         gateway.router._websocket_api = mock_api
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            temp_db = os.path.join(tmpdir, "sessions.json")
-            temp_session_dir = Path(tmpdir) / "sessions" / "test_clear_session"
+            temp_db = Path(tmpdir) / "sessions.json"
+            temp_session_dir = temp_db.parent / "sessions" / "test_clear_session"
             temp_session_dir.mkdir(parents=True)
             (temp_session_dir / "messages.jsonl").write_text("test data")
 
@@ -594,7 +594,7 @@ class TestChannelCommands:
                         "agent_id": "main_agent",
                     }
                 },
-                open(temp_db, "w"),
+                temp_db.open("w"),
             )
 
             try:

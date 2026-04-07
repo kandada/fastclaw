@@ -7,7 +7,17 @@ import pytest
 from openai import AsyncOpenAI
 
 
-@pytest.mark.skipif(not os.getenv("LLM_API_KEY"), reason="Requires LLM_API_KEY")
+def _has_llm_config():
+    """检查是否有可用的 LLM 配置"""
+    api_key = os.environ.get("LLM_API_KEY") or os.environ.get("OPENAI_API_KEY")
+    return bool(api_key)
+
+
+@pytest.mark.skipif(
+    not _has_llm_config(),
+    reason="Requires LLM_API_KEY or OPENAI_API_KEY environment variable",
+)
+@pytest.mark.asyncio
 async def test_llm_streaming_timing():
     """测试 LLM streaming 时 chunk 到达的时间间隔"""
     api_key = os.getenv("LLM_API_KEY", "")

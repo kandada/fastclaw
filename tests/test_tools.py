@@ -1,6 +1,7 @@
 """工具测试"""
 
 import pytest
+from pathlib import Path
 from core.app import (
     run_shell,
     run_skills,
@@ -80,13 +81,17 @@ class TestSkillsLoader:
 
     def test_load_skills(self):
         """测试加载技能"""
-        skills = load_skills("workspace/skills")
+        skills = load_skills(
+            str(Path(__file__).parent.parent.parent / "workspace/skills")
+        )
         assert isinstance(skills, dict)
         assert "current_time" in skills
 
     def test_skills_structure(self):
         """技能结构"""
-        skills = load_skills("workspace/skills")
+        skills = load_skills(
+            str(Path(__file__).parent.parent.parent / "workspace/skills")
+        )
         if "current_time" in skills:
             skill = skills["current_time"]
             assert "name" in skill

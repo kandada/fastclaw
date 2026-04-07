@@ -15,11 +15,20 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, HTMLResponse
 import uvicorn
 
-from core.app import start
-from gateway.router import router, set_websocket_api
-from gateway.cron_scheduler import get_cron_scheduler
-from gateway.channels import FeishuAdapter
-from gateway.channels.feishu import set_main_loop
+_IS_PACKAGE_MODE = __package__ and __package__.startswith("fastclaw.")
+
+if _IS_PACKAGE_MODE:
+    from ..core.app import start
+    from .router import router, set_websocket_api
+    from .cron_scheduler import get_cron_scheduler
+    from .channels import FeishuAdapter
+    from .channels.feishu import set_main_loop
+else:
+    from core.app import start
+    from gateway.router import router, set_websocket_api
+    from gateway.cron_scheduler import get_cron_scheduler
+    from gateway.channels import FeishuAdapter
+    from gateway.channels.feishu import set_main_loop
 
 WEBUI_DIR = Path(__file__).parent.parent / "webui"
 
@@ -77,7 +86,9 @@ class GatewayServer:
     async def _init_channels(self):
         """初始化渠道连接"""
         global _channels
-        config_dir = Path("workspace/data/channels")
+        from fastclaw.core.config import get_channels_dir
+
+        config_dir = get_channels_dir()
 
         if not config_dir.exists():
             print("No channels directory found, skipping channel initialization")

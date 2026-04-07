@@ -11,7 +11,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from fastmind import Event
 
 
-@pytest.mark.skipif(not os.getenv("LLM_API_KEY"), reason="Requires LLM_API_KEY")
 @pytest.mark.asyncio
 async def test_fastmind_streaming_timing(shared_api):
     """测试 FastMind stream_events 时 chunk 到达的时间间隔"""

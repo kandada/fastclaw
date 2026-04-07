@@ -4,8 +4,6 @@
 import sys
 from pathlib import Path
 
-# sys.path.insert(0, str(Path(__file__).parent.parent / "vendor"))
-
 import asyncio
 import datetime
 import subprocess
@@ -18,7 +16,28 @@ from fastmind.contrib import FastMindAPI
 from openai import AsyncOpenAI
 import time
 
-from core.prompts import format_system_prompt, SYSTEM_PROMPT
+if __package__ in (None, ""):
+    from core.prompts import format_system_prompt, SYSTEM_PROMPT
+else:
+    from .prompts import format_system_prompt, SYSTEM_PROMPT
+
+_IS_PACKAGE_MODE = __package__ and __package__.startswith("fastclaw")
+if _IS_PACKAGE_MODE:
+    from .config import (
+        get_workspace_path,
+        get_sessions_dir,
+        get_agents_dir,
+        get_settings_file,
+        get_skills_dir,
+    )
+else:
+    from core.config import (
+        get_workspace_path,
+        get_sessions_dir,
+        get_agents_dir,
+        get_settings_file,
+        get_skills_dir,
+    )
 
 CONTEXT_UNLOAD_THRESHOLD = 80000
 
@@ -68,7 +87,7 @@ def fix_invalid_tool_calls(messages: list) -> list:
 
 
 def save_messages_to_jsonl(session_id: str, messages: list) -> None:
-    session_dir = Path(f"workspace/data/sessions/{session_id}")
+    session_dir = get_sessions_dir() / session_id
     session_dir.mkdir(parents=True, exist_ok=True)
     messages_file = session_dir / "messages.jsonl"
     with open(messages_file, "w", encoding="utf-8") as f:
@@ -82,7 +101,7 @@ def save_messages_to_jsonl(session_id: str, messages: list) -> None:
 
 
 def load_messages_from_jsonl(session_id: str) -> list:
-    messages_file = Path(f"workspace/data/sessions/{session_id}/messages.jsonl")
+    messages_file = get_sessions_dir() / session_id / "messages.jsonl"
     if not messages_file.exists():
         return []
     messages = []
@@ -115,7 +134,7 @@ def unload_early_messages(messages: list, threshold: int) -> tuple[list, list]:
 
 
 def load_settings() -> dict:
-    settings_file = Path("workspace/data/settings.json")
+    settings_file = get_settings_file()
     defaults = {
         "default_agent_id": "main_agent",
         "run_shell_timeout": 60,
@@ -131,7 +150,7 @@ def load_settings() -> dict:
 
 
 def load_session_agent_id(session_id: str) -> str:
-    sessions_file = Path("workspace/data/sessions/sessions.json")
+    sessions_file = get_sessions_dir() / "sessions.json"
     if sessions_file.exists():
         try:
             sessions = json.loads(sessions_file.read_text())
@@ -146,7 +165,7 @@ def load_session_agent_id(session_id: str) -> str:
 
 
 def load_agent_config(agent_id: str) -> dict:
-    agent_dir = Path(f"workspace/data/agents/{agent_id}")
+    agent_dir = get_agents_dir() / agent_id
     metadata_file = agent_dir / "metadata.json"
     if metadata_file.exists():
         try:
@@ -172,7 +191,7 @@ def load_agent_config(agent_id: str) -> dict:
 
 
 def load_agent_personality(agent_id: str) -> str:
-    agent_dir = Path(f"workspace/data/agents/{agent_id}")
+    agent_dir = get_agents_dir() / agent_id
     parts = []
     for filename in ["SOUL.md", "USER.md", "AGENT.md"]:
         filepath = agent_dir / filename
@@ -186,9 +205,12 @@ def load_agent_personality(agent_id: str) -> str:
     return "".join(parts)
 
 
-def load_skills(skills_dir: str = "workspace/skills") -> dict:
+def load_skills(skills_dir: str = None) -> dict:
     skills = {}
-    skills_dir_path = Path(skills_dir)
+    if skills_dir is None:
+        skills_dir_path = get_skills_dir()
+    else:
+        skills_dir_path = Path(skills_dir)
     if not skills_dir_path.exists():
         return skills
     for skill_path in skills_dir_path.rglob("SKILL.md"):
@@ -215,7 +237,7 @@ async def execute_skill(
 ) -> str:
     params = params or {}
     if skill_dir is None:
-        skill_dir = f"workspace/skills/{skill_name}"
+        skill_dir = str(get_skills_dir() / skill_name)
     skill_path = Path(skill_dir) / "main.py"
     if not skill_path.exists():
         return f"Error: Skill '{skill_name}' not found at {skill_dir}"

@@ -14,13 +14,31 @@ from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisco
 from fastapi.responses import StreamingResponse, FileResponse
 from pydantic import BaseModel
 
-from gateway.event_bus import EventBus, get_event_bus, set_event_bus
-from gateway.cron_scheduler import CronScheduler, get_cron_scheduler
+_IS_PACKAGE_MODE = __package__ and __package__.startswith("fastclaw.")
+
+if _IS_PACKAGE_MODE:
+    from .event_bus import EventBus, get_event_bus, set_event_bus
+    from .cron_scheduler import CronScheduler, get_cron_scheduler
+    from fastclaw.core.config import (
+        get_sessions_dir,
+        get_settings_file,
+        get_agents_dir,
+        get_cron_dir,
+    )
+else:
+    from gateway.event_bus import EventBus, get_event_bus, set_event_bus
+    from gateway.cron_scheduler import CronScheduler, get_cron_scheduler
+    from core.config import (
+        get_sessions_dir,
+        get_settings_file,
+        get_agents_dir,
+        get_cron_dir,
+    )
 
 router = APIRouter()
 
-SESSION_DB_FILE = Path("workspace/data/sessions/sessions.json")
-SETTINGS_FILE = Path("workspace/data/settings.json")
+SESSION_DB_FILE = get_sessions_dir() / "sessions.json"
+SETTINGS_FILE = get_settings_file()
 WEBUI_DIR = Path(__file__).parent.parent / "webui"
 
 
@@ -144,7 +162,10 @@ async def health_check():
 @router.get("/api/skills")
 async def list_skills():
     """列出所有可用技能"""
-    from core.app import SKILLS, SKILLS_LIST
+    if __package__ in (None, ""):
+        from core.app import SKILLS, SKILLS_LIST
+    else:
+        from fastclaw.core.app import SKILLS, SKILLS_LIST
 
     return {
         "skills": SKILLS,
@@ -155,7 +176,7 @@ async def list_skills():
 @router.get("/api/agents")
 async def list_agents():
     """列出所有 Agent"""
-    agents_dir = Path("workspace/data/agents")
+    agents_dir = get_agents_dir()
     agents = []
     if agents_dir.exists():
         for agent_path in agents_dir.iterdir():
@@ -177,7 +198,7 @@ async def create_agent(request: Request):
     if not name:
         return {"error": "Agent name is required"}, 400
 
-    agents_dir = Path("workspace/data/agents")
+    agents_dir = get_agents_dir()
     agents_dir.mkdir(parents=True, exist_ok=True)
 
     agent_dir = agents_dir / name
@@ -215,7 +236,7 @@ async def create_agent(request: Request):
 @router.get("/api/agents/{name}")
 async def get_agent(name: str):
     """获取 Agent 详情"""
-    agent_dir = Path(f"workspace/data/agents/{name}")
+    agent_dir = get_agents_dir() / name
     if not agent_dir.exists():
         return {"error": f"Agent '{name}' not found"}, 404
 
@@ -244,7 +265,7 @@ async def get_agent(name: str):
 @router.put("/api/agents/{name}")
 async def update_agent(name: str, request: Request):
     """更新 Agent"""
-    agent_dir = Path(f"workspace/data/agents/{name}")
+    agent_dir = get_agents_dir() / name
     if not agent_dir.exists():
         return {"error": f"Agent '{name}' not found"}, 404
 
@@ -291,7 +312,7 @@ async def delete_agent(name: str):
     if name == "main_agent":
         return {"error": "Cannot delete main_agent"}, 400
 
-    agent_dir = Path(f"workspace/data/agents/{name}")
+    agent_dir = get_agents_dir() / name
     if not agent_dir.exists():
         return {"error": f"Agent '{name}' not found"}, 404
 
@@ -302,7 +323,7 @@ async def delete_agent(name: str):
 @router.get("/api/crons")
 async def list_crons():
     """列出所有 Cron 任务"""
-    tasks_file = Path("workspace/data/cron/tasks.json")
+    tasks_file = get_cron_dir() / "tasks.json"
     if tasks_file.exists():
         try:
             return {"tasks": json.loads(tasks_file.read_text())}
@@ -318,7 +339,7 @@ async def create_cron(task_data: dict):
     if error:
         raise HTTPException(status_code=400, detail=error)
 
-    tasks_file = Path("workspace/data/cron/tasks.json")
+    tasks_file = get_cron_dir() / "tasks.json"
     tasks_file.parent.mkdir(parents=True, exist_ok=True)
 
     tasks = []
@@ -353,7 +374,7 @@ async def create_cron(task_data: dict):
 @router.delete("/api/crons/{task_id}")
 async def delete_cron(task_id: str):
     """删除 Cron 任务"""
-    tasks_file = Path("workspace/data/cron/tasks.json")
+    tasks_file = get_cron_dir() / "tasks.json"
     if tasks_file.exists():
         try:
             tasks = json.loads(tasks_file.read_text())
@@ -454,7 +475,7 @@ async def delete_session(session_id: str):
     del sessions[session_id]
     save_sessions(sessions)
 
-    session_dir = Path(f"workspace/data/sessions/{session_id}")
+    session_dir = get_sessions_dir() / session_id
     if session_dir.exists():
         shutil.rmtree(session_dir, ignore_errors=True)
 
@@ -464,7 +485,7 @@ async def delete_session(session_id: str):
 @router.get("/api/sessions/{session_id}/messages")
 async def get_session_messages(session_id: str):
     """获取 Session 的消息历史"""
-    messages_file = Path(f"workspace/data/sessions/{session_id}/messages.jsonl")
+    messages_file = get_sessions_dir() / session_id / "messages.jsonl"
 
     if not messages_file.exists():
         return []
@@ -483,7 +504,7 @@ async def get_session_messages(session_id: str):
 @router.delete("/api/sessions/{session_id}/messages")
 async def delete_session_messages(session_id: str):
     """清空 Session 的消息历史"""
-    messages_file = Path(f"workspace/data/sessions/{session_id}/messages.jsonl")
+    messages_file = get_sessions_dir() / session_id / "messages.jsonl"
     if messages_file.exists():
         messages_file.unlink()
     return {"status": "cleared"}

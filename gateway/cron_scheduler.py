@@ -10,6 +10,12 @@ from typing import Dict, Set, Optional, Callable, Awaitable
 from dataclasses import dataclass
 import croniter
 
+_IS_PACKAGE_MODE = __package__ and __package__.startswith("fastclaw.")
+if _IS_PACKAGE_MODE:
+    from fastclaw.core.config import get_cron_dir
+else:
+    from core.config import get_cron_dir
+
 
 @dataclass
 class CronTask:
@@ -49,7 +55,7 @@ class CronScheduler:
         self._queues: Dict[str, asyncio.Queue] = {}
         self._processing: Dict[str, bool] = {}
         self._push_callback: Optional[Callable[[str, dict], Awaitable[None]]] = None
-        self._task_file = Path("workspace/data/cron/tasks.json")
+        self._task_file = get_cron_dir() / "tasks.json"
         self._running = False
         self._runner_task: Optional[asyncio.Task] = None
 

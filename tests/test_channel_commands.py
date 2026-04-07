@@ -37,7 +37,7 @@ class MockAPI:
 def temp_session_db():
     """临时 session 数据库"""
     with tempfile.TemporaryDirectory() as tmpdir:
-        db_file = os.path.join(tmpdir, "sessions.json")
+        db_file = Path(tmpdir) / "sessions.json"
         yield db_file
 
 
@@ -91,7 +91,7 @@ class TestChannelCommands:
 
         handlers.SESSION_DB_FILE = temp_session_db
 
-        Path(temp_session_db).write_text(
+        temp_session_db.write_text(
             json.dumps(
                 {
                     "test_session": {
@@ -102,7 +102,7 @@ class TestChannelCommands:
             )
         )
 
-        session_dir = Path(temp_session_db).parent / "sessions" / "test_session"
+        session_dir = temp_session_db.parent / "sessions" / "test_session"
         session_dir.mkdir(parents=True)
         messages_file = session_dir / "messages.jsonl"
         messages_file.write_text('{"role":"user","content":"hello"}\n')
@@ -139,7 +139,7 @@ class TestChannelCommands:
 
         handlers.SESSION_DB_FILE = temp_session_db
 
-        Path(temp_session_db).write_text(
+        temp_session_db.write_text(
             json.dumps(
                 {
                     "session_001": {
@@ -188,7 +188,7 @@ class TestChannelCommands:
 
         handlers.SESSION_DB_FILE = temp_session_db
 
-        Path(temp_session_db).write_text(
+        temp_session_db.write_text(
             json.dumps(
                 {
                     "target_session": {
@@ -231,7 +231,7 @@ class TestChannelCommands:
 
         handlers.SESSION_DB_FILE = temp_session_db
 
-        Path(temp_session_db).write_text(json.dumps({}))
+        temp_session_db.write_text(json.dumps({}))
 
         sent_messages = []
 
@@ -327,7 +327,7 @@ class TestChannelMessageWithCommands:
 
         handlers.SESSION_DB_FILE = temp_session_db
 
-        Path(temp_session_db).write_text(json.dumps({}))
+        temp_session_db.write_text(json.dumps({}))
 
         mock_api = MockAPI()
         sent_messages = []
@@ -362,7 +362,7 @@ class TestChannelMessageWithCommands:
 
         handlers.SESSION_DB_FILE = temp_session_db
 
-        Path(temp_session_db).write_text(json.dumps({}))
+        temp_session_db.write_text(json.dumps({}))
 
         class MockStreamAPI(MockAPI):
             def __init__(self):

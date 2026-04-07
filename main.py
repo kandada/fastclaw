@@ -9,9 +9,37 @@ import sys
 import urllib.request
 from pathlib import Path
 
-from core.app import start
-from gateway.server import GatewayServer
-from cli import chat as cli_chat
+# 设置 sys.path 使 fastclaw.* 导入在直接运行模式下也能工作
+_main_file = Path(__file__).resolve()
+_pkg_dir = _main_file.parent  # fastclaw/
+_project_root = _pkg_dir.parent  # fastclaw_local/
+
+# 确保 fastclaw/ 在 sys.path 中（用于 fastclaw.core.config 等导入）
+_pkg_dir_str = str(_pkg_dir)
+if _pkg_dir_str not in sys.path:
+    sys.path.insert(0, _pkg_dir_str)
+
+# 确保项目根目录在 sys.path 中（用于 core.*, gateway.* 等导入）
+_root_str = str(_project_root)
+if _root_str not in sys.path:
+    sys.path.insert(0, _root_str)
+
+# 设置默认 FASTCLAW_WORKSPACE 环境变量
+_default_ws = _project_root / "workspace"
+if os.environ.get("FASTCLAW_WORKSPACE") is None:
+    if _default_ws.exists() and _default_ws.is_dir():
+        os.environ["FASTCLAW_WORKSPACE"] = str(_default_ws)
+    else:
+        os.environ["FASTCLAW_WORKSPACE"] = str(Path.home() / ".fastclaw" / "workspace")
+
+if __package__ in (None, ""):
+    from core.app import start
+    from gateway.server import GatewayServer
+    from cli import chat as cli_chat
+else:
+    from .core.app import start
+    from .gateway.server import GatewayServer
+    from .cli import chat as cli_chat
 
 PID_FILE = "/tmp/fastclaw.pid"
 _http_opener = None
@@ -183,7 +211,9 @@ def add_agent():
         "extra_workspaces": [],
     }
 
-    agents_dir = Path("workspace/data/agents")
+    from fastclaw.core.config import get_agents_dir
+
+    agents_dir = get_agents_dir()
     agents_dir.mkdir(parents=True, exist_ok=True)
 
     agent_dir = agents_dir / name
@@ -365,6 +395,11 @@ async def main():
         print(
             "Available commands: start, chat, api, status, session, cron, skill, agent, help"
         )
+
+
+def cli_main():
+    """CLI 入口点，供 console_scripts 使用"""
+    asyncio.run(main())
 
 
 if __name__ == "__main__":

@@ -577,8 +577,12 @@
                         sessions.value = allSessions.filter(s => {
                             return !channelPrefixes.some(prefix => s.session_id.startsWith(prefix));
                         });
-                        if (!currentSessionId.value && sessions.value.length > 0) {
-                            selectLatestSession();
+                        if (!currentSessionId.value) {
+                            if (sessions.value.length > 0) {
+                                selectLatestSession();
+                            } else {
+                                await createSession();
+                            }
                         }
                     } catch (e) { console.error('loadSessions error', e); }
                 }

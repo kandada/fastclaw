@@ -11,15 +11,15 @@ import uuid
 from typing import Callable, Awaitable, List, Dict, Any, Optional
 from fastmind import Event
 
+from fastclaw.core.config import get_sessions_dir
 
-SESSION_DB_FILE = "workspace/data/sessions/sessions.json"
+
+SESSION_DB_FILE = get_sessions_dir() / "sessions.json"
 
 
 def load_sessions() -> dict:
     """加载 sessions"""
-    from pathlib import Path
-
-    db_file = Path(SESSION_DB_FILE)
+    db_file = SESSION_DB_FILE
     if db_file.exists():
         try:
             return json.loads(db_file.read_text())
@@ -30,9 +30,7 @@ def load_sessions() -> dict:
 
 def save_sessions(sessions: dict):
     """保存 sessions"""
-    from pathlib import Path
-
-    db_file = Path(SESSION_DB_FILE)
+    db_file = SESSION_DB_FILE
     db_file.parent.mkdir(parents=True, exist_ok=True)
     db_file.write_text(json.dumps(sessions, indent=2, ensure_ascii=False))
 
@@ -99,10 +97,10 @@ async def handle_channel_command(
         return True, new_session_id
 
     elif text == "/clear":
-        from pathlib import Path
+        from fastclaw.core.config import get_sessions_dir
 
         session_id = sender_id
-        session_dir = Path(f"workspace/data/sessions/{session_id}")
+        session_dir = get_sessions_dir() / session_id
         messages_file = session_dir / "messages.jsonl"
 
         if messages_file.exists():

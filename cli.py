@@ -16,13 +16,23 @@ except ImportError:
 
 
 from fastmind import Event
-from core.app import start
-from gateway.channels.handlers import (
-    handle_channel_command,
-    load_sessions,
-    save_sessions,
-    get_last_session,
-)
+
+if __package__ in (None, ""):
+    from core.app import start
+    from gateway.channels.handlers import (
+        handle_channel_command,
+        load_sessions,
+        save_sessions,
+        get_last_session,
+    )
+else:
+    from .core.app import start
+    from .gateway.channels.handlers import (
+        handle_channel_command,
+        load_sessions,
+        save_sessions,
+        get_last_session,
+    )
 
 logging.disable(logging.WARNING)
 
@@ -150,7 +160,9 @@ async def chat(new_session=False, session_id=None):
             return True, new_session_id
 
         elif text == "/clear":
-            session_dir = Path(f"workspace/data/sessions/{current_session_id}")
+            from fastclaw.core.config import get_sessions_dir
+
+            session_dir = get_sessions_dir() / current_session_id
             messages_file = session_dir / "messages.jsonl"
             if messages_file.exists():
                 messages_file.unlink()

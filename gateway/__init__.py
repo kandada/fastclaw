@@ -1,5 +1,10 @@
 """FastClaw 网关层"""
 
-from gateway.server import GatewayServer
+_IS_PACKAGE_MODE = __package__ and __package__.startswith("fastclaw.")
+
+if _IS_PACKAGE_MODE:
+    from .server import GatewayServer
+else:
+    from gateway.server import GatewayServer
 
 __all__ = ["GatewayServer"]

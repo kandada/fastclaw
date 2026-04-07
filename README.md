@@ -1,20 +1,45 @@
 # FastClaw
 
-a python-based light but strong lobster
+A lightweight but powerful AI Agent framework in Python.
 
-## Design Philosophy
+## PyPI Installation (Recommended)
 
-FastClaw is built on the core concept of **event-driven agent orchestration**. Key design principles:
+```bash
+# Install
+pip install fastclaw-ai
 
-- **Graph-based Agent**: Uses a directed graph to orchestrate agent behavior, supporting conditional branching between nodes (e.g., tool execution, response generation)
-- **Event Streaming**: Real-time streaming output of LLM responses for better user experience
-- **Tool System**: Extensible tool framework supporting Shell commands, skills, and custom integrations
-- **Session Management**: Persistent conversation history with multi-session support
-- **Cron Scheduling**: Built-in cron-style task scheduling for automated workflows
+# Run
+fastclaw start
 
-## Quick Start
+# Persistent running (recommended for server)
+nohup fastclaw start > /tmp/fastclaw.log 2>&1 &
+```
 
-### Installation
+### Configure Agent
+
+After starting, visit http://localhost:8765 , click Settings in the top right corner to configure main_agent, recommended: deepseek-chat.
+
+Or edit the config file:
+```bash
+vim ~/.fastclaw/workspace/data/agents/main_agent/metadata.json
+```
+
+### CLI Usage
+
+```bash
+# Interactive chat
+fastclaw chat
+
+# New session
+fastclaw chat --new
+
+# Check status
+fastclaw status
+```
+
+---
+
+## Git Clone
 
 ```bash
 git clone https://github.com/kandada/fastclaw.git
@@ -22,25 +47,22 @@ cd fastclaw
 pip install -r requirements.txt
 ```
 
-### Start Server
-
 ```bash
+# Run
 python main.py start
-# or want it remaining in background:
+
+# Persistent running
 nohup python main.py start > fastclaw.log 2>&1 &
 ```
 
-### Agent Configuration
-```bash
-vim workspace/data/agents/main_agent/metadata.json 
-# Edit the file to configure your LLM provider and API key
-# Currently supports OpenAI gateway models (DeepSeek, OpenAI, etc.), recommended: deepseek-chat
-# Default agent is main_agent. To switch, modify workspace/data/settings.json
-```
+### Configure Agent
 
-Access at http://localhost:8765
-You can also select agents and enter API keys in the Settings page.
-API key must be provided for the agent to work properly.
+After starting, visit http://localhost:8765 , click Settings in the top right corner to configure main_agent, recommended: deepseek-chat.
+
+Or edit the config file:
+```bash
+vim workspace/data/agents/main_agent/metadata.json
+```
 
 ### CLI Usage
 
@@ -55,13 +77,26 @@ python main.py chat --new
 python main.py status
 ```
 
+---
+
+## Design Philosophy
+
+FastClaw is built on the core concept of **event-driven agent orchestration**. Key design principles:
+
+- **Graph-based Agent**: Uses a directed graph to orchestrate agent behavior, supporting conditional branching between nodes (e.g., tool execution, response generation)
+- **Event Streaming**: Real-time streaming output of LLM responses for better user experience
+- **Tool System**: Extensible tool framework supporting Shell commands, skills, and custom integrations
+- **Session Management**: Persistent conversation history with multi-session support
+- **Cron Scheduling**: Built-in cron-style task scheduling for automated workflows
+
 ## Features
 
-- 🤖 **LLM-powered** - Built on  [FastMind](https://github.com/kandada/fastmind)  framework with streaming support
+- 🤖 **LLM-powered** - Built on [FastMind](https://github.com/kandada/fastmind) framework with streaming support
 - 🔧 **Tool Calling** - Execute Shell commands, skills, and more
 - ⏰ **Cron Jobs** - Schedule tasks with cron expressions
 - 💬 **Multi-channel** - Feishu, iMessage integrations
 - 🎨 **Extensible** - Easy to add custom skills and agents
+- 🐍 **Python Ecosystem** - Seamlessly call professional libraries like numpy and pandas, enabling AI to use Python ecosystem tools as skillfully as humans
 
 ## License
 

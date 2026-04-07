@@ -10,10 +10,16 @@ import lark_oapi as lark
 from lark_oapi.event.dispatcher_handler import EventDispatcherHandler
 from lark_oapi.api.im.v1 import P2ImMessageReceiveV1
 
-from gateway.channels.base import ChannelAdapter
-from gateway.channels.client import BaseHttpClient, TokenManager, OAuthHelper
+if __package__ in (None, ""):
+    from gateway.channels.base import ChannelAdapter
+    from gateway.channels.client import BaseHttpClient, TokenManager, OAuthHelper
+else:
+    from .base import ChannelAdapter
+    from .client import BaseHttpClient, TokenManager, OAuthHelper
 
-CONFIG_PATH = "workspace/data/channels/feishu_config.json"
+from fastclaw.core.config import get_channels_dir
+
+CONFIG_PATH = get_channels_dir() / "feishu_config.json"
 
 
 class FeishuAdapter(ChannelAdapter, BaseHttpClient):

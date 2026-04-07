@@ -184,7 +184,9 @@ class TestSettingsAPI:
         from pathlib import Path
         import json
 
-        settings_file = Path("workspace/data/settings.json")
+        from fastclaw.core.config import get_settings_file
+
+        settings_file = get_settings_file()
         original_settings = None
         if settings_file.exists():
             original_settings = json.loads(settings_file.read_text())
