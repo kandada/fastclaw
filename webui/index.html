@@ -70,7 +70,12 @@
         .msg-content pre { background: #e8e8e8; padding: 10px; border-radius: 6px; overflow-x: auto; margin: 8px 0; max-width: 100%; box-sizing: border-box; width: 100%; white-space: pre-wrap; word-break: break-word; }
         .msg-content pre code { background: none; padding: 0; width: 100%; max-width: 100%; box-sizing: border-box; display: block; }
         .msg-content blockquote { border-left: 3px solid #ccc; padding-left: 10px; margin: 8px 0; color: #666; }
+        .msg-content p { margin: 4px 0; }
+        .msg-content p:empty { display: none; }
+        .msg-content .tool-execution { background: #f0f0f0; border-left: 3px solid #666; border-radius: 4px; padding: 8px 12px; margin: 8px 0; font-family: monospace; font-size: 13px; white-space: pre-wrap; word-break: break-word; color: #333; }
         .thinking-content { color: #999; font-size: 13px; margin-bottom: 8px; white-space: pre-wrap; word-break: break-word; text-align: left; }
+        .streaming-cursor { display: inline-block; color: #666; font-weight: bold; animation: blink 1s infinite; margin-left: 2px; }
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
         .tool-content { color: #999; font-size: 13px; margin-bottom: 8px; white-space: pre-wrap; word-break: break-word; text-align: left; }
         .tool-output-container { background: #f8f8f8; border-left: 3px solid #999; border-radius: 4px; padding: 6px 12px; margin: 4px 0; }
         .tool-output-header { color: #666; font-size: 12px; font-weight: 500; margin-bottom: 4px; }
@@ -169,7 +174,7 @@
                             </template>
                         </el-dialog>
                         <div class="chat-messages" ref="msgContainer">
-                            <div v-for="(msg, i) in messages" :key="i" class="message" :class="'message-' + msg.role">
+                            <div v-for="(msg, i) in messages" :key="i" class="message" :class="'message-' + msg.role" :data-msg-id="msg.id">
                                 <div v-if="msg.thinking" class="thinking-content">[思考中...] {{ msg.thinking }}</div>
                                 <div class="msg-content" v-html="getMsgContent(msg)"></div>
                                 <div v-if="msg.role === 'assistant'" class="message-actions">
@@ -535,11 +540,17 @@
                 function getMsgContent(msg) {
                     if (msg.role === 'assistant' && msg.content) {
                         let html = msg.content;
+                        // Format tool execution notifications
+                        html = html.replace(/\[执行工具:([^\]]+)\]/g, (match, toolInfo) => {
+                            return `<div class="tool-execution">[执行工具:${toolInfo}]</div>`;
+                        });
                         if (typeof marked !== 'undefined') {
-                            html = marked.parse(msg.content);
+                            html = marked.parse(html);
                         }
                         html = html.replace(/<pre><code/g, '<div class="code-block-wrapper"><pre><code');
                         html = html.replace(/<\/code><\/pre>/g, '</code></pre><button class="code-copy-btn" onclick="copyCodeBlock(this)" title="复制代码"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button></div>');
+                        // Clean up excessive newlines
+                        html = html.replace(/\n{3,}/g, '\n\n');
                         return html;
                     }
                     if (msg.role === 'tool') {
@@ -614,9 +625,18 @@
                 async function selectSession(id) {
                     if (currentSessionId.value === id) return;
                     disconnect();
+                    // Keep user messages that don't have assistant responses yet
+                    const userMessagesWithoutResponse = messages.value.filter(msg => {
+                        if (msg.role !== 'user') return false;
+                        const msgIndex = messages.value.indexOf(msg);
+                        const nextMsg = messages.value[msgIndex + 1];
+                        return !nextMsg || nextMsg.role !== 'assistant';
+                    });
+                    
                     currentSessionId.value = id;
                     messages.value = [];
                     clearUnreadCount(id);
+                    
                     try {
                         const r = await fetch(`/api/sessions/${id}/messages`);
                         const loadedMessages = await r.json();
@@ -627,6 +647,43 @@
                             return msg;
                         });
                     } catch (e) {}
+                    
+                    // Re-add user messages that were pending (no assistant response yet)
+                    userMessagesWithoutResponse.forEach(msg => {
+                        const exists = messages.value.some(m => m.content === msg.content);
+                        if (!exists) {
+                            messages.value.push(msg);
+                        }
+                    });
+
+                    try {
+                        const stateRes = await fetch(`/api/chat/state/${id}`);
+                        const state = await stateRes.json();
+                        if (state.message_id) {
+                            let msg = messages.value.find(m => m.id === state.message_id);
+                            if (!msg) {
+                                msg = {
+                                    id: state.message_id,
+                                    role: state.role || 'assistant',
+                                    content: state.content || '',
+                                    thinking: state.thinking || '',
+                                    _isStreaming: true,
+                                    timestamp: state.timestamp || Date.now()
+                                };
+                                messages.value.push(msg);
+                            } else {
+                                msg.content = state.content || msg.content;
+                                msg.thinking = state.thinking || msg.thinking;
+                                msg._isStreaming = true;
+                            }
+                            isStreaming.value = true;
+                        }
+                    } catch (e) {
+                        // Ignore state fetch errors
+                    }
+
+                    connect(id);
+
                     await nextTick();
                     scrollBottom();
                 }
@@ -636,48 +693,43 @@
                     if (el) el.scrollTop = el.scrollHeight;
                 }
 
-function connect(sessionId) {
+                function connect(sessionId) {
                     disconnect();
                     
                     const chatUrl = `/api/chat/stream/${sessionId}`;
                     chatEventSource = new EventSource(chatUrl);
                     
                     chatEventSource.onerror = (err) => {
-                        console.log('[Chat SSE] Connection error, will auto-reconnect');
                         wsConnected.value = false;
                         if (isStreaming.value) {
                             isStreaming.value = false;
                         }
                     };
                     
-                    chatEventSource.onclose = (err) => {
-                        console.log('Chat SSE onclose');
-                    };
-                    
                     chatEventSource.onopen = () => {
-                        console.log('Chat SSE Connected');
                         wsConnected.value = true;
                     };
                     
-                    chatEventSource.addEventListener('connected', (e) => {
-                        console.log('Chat SSE connection confirmed');
-                    });
-                    
                     chatEventSource.addEventListener('session_waiting', (e) => {
-                        console.log('Session waiting...');
                         wsConnected.value = true;
                     });
                     
                     chatEventSource.addEventListener('session_timeout', (e) => {
-                        console.log('Session timeout');
                         wsConnected.value = false;
                     });
                     
                     chatEventSource.addEventListener('message.start', (e) => {
                         const data = JSON.parse(e.data);
                         const eventId = e.lastEventId;
+                        // Skip if already have a streaming message
+                        if (currentStreamingMsg && currentStreamingMsg._isStreaming) {
+                            return;
+                        }
+                        // Check if this message already exists and is streaming
                         let msg = messages.value.find(m => m.id === eventId);
                         if (msg) {
+                            // Skip if already streaming
+                            if (msg._isStreaming) return;
                             msg._isStreaming = true;
                             messageBuffer.set(eventId, msg);
                         } else {
@@ -693,33 +745,43 @@ function connect(sessionId) {
                             messageBuffer.set(eventId, msg);
                         }
                         currentStreamingMsg = msg;
-                        requestAnimationFrame(() => scrollBottom());
+                        // Add streaming cursor
+                        requestAnimationFrame(() => {
+                            const msgEl = document.querySelector(`.chat-messages .message[data-msg-id="${eventId}"]`);
+                            if (msgEl && !msgEl.querySelector('.streaming-cursor')) {
+                                const cursor = document.createElement('span');
+                                cursor.className = 'streaming-cursor';
+                                cursor.textContent = '|';
+                                msgEl.appendChild(cursor);
+                            }
+                            scrollBottom();
+                        });
                     });
                     
                     chatEventSource.addEventListener('message.chunk', (e) => {
                         const data = JSON.parse(e.data);
-                        let msg = messageBuffer.get(e.lastEventId);
-                        if (!msg && currentStreamingMsg) {
-                            msg = currentStreamingMsg;
-                            messageBuffer.set(e.lastEventId, msg);
+                        if (!currentStreamingMsg) return;
+                        currentStreamingMsg.content += data.delta || '';
+                        // Update DOM directly for instant display
+                        const msgEl = document.querySelector(`.chat-messages .message[data-msg-id="${currentStreamingMsg.id}"] .msg-content`);
+                        if (msgEl) {
+                            msgEl.innerHTML = getMsgContent(currentStreamingMsg);
                         }
-                        if (msg) {
-                            msg.content += data.delta || '';
-                            requestAnimationFrame(() => scrollBottom());
-                        }
+                        scrollBottom();
                     });
                     
                     chatEventSource.addEventListener('message.thinking', (e) => {
                         const data = JSON.parse(e.data);
-                        let msg = messageBuffer.get(e.lastEventId);
-                        if (!msg && currentStreamingMsg) {
-                            msg = currentStreamingMsg;
-                            messageBuffer.set(e.lastEventId, msg);
+                        if (!currentStreamingMsg) return;
+                        currentStreamingMsg.thinking = (currentStreamingMsg.thinking || '') + (data.delta || '');
+                        const msgEl = document.querySelector(`.chat-messages .message[data-msg-id="${currentStreamingMsg.id}"]`);
+                        if (msgEl) {
+                            const thinkingEl = msgEl.querySelector('.thinking-content');
+                            if (thinkingEl) {
+                                thinkingEl.textContent = '[思考中...] ' + currentStreamingMsg.thinking;
+                            }
                         }
-                        if (msg) {
-                            msg.thinking = (msg.thinking || '') + (data.delta || '');
-                            requestAnimationFrame(() => scrollBottom());
-                        }
+                        scrollBottom();
                     });
                     
                     chatEventSource.addEventListener('message.tool_start', (e) => {
@@ -744,6 +806,12 @@ function connect(sessionId) {
                         }
                         if (msg) {
                             msg._isStreaming = false;
+                            // Remove streaming cursor
+                            const msgEl = document.querySelector(`.chat-messages .message[data-msg-id="${msg.id}"]`);
+                            if (msgEl) {
+                                const cursor = msgEl.querySelector('.streaming-cursor');
+                                if (cursor) cursor.remove();
+                            }
                             if (msg.isCron) {
                                 const sessionId = currentSessionId.value;
                                 if (sessionId && unreadCounts.value[sessionId] !== undefined) {
@@ -757,15 +825,12 @@ function connect(sessionId) {
                     });
                     
                     chatEventSource.addEventListener('error', (e) => {
-                        console.log('[Chat SSE] Error event received', e);
                         if (e.data) {
                             let errorMsg = 'Unknown error';
                             try {
                                 const data = JSON.parse(e.data);
                                 errorMsg = data.error || errorMsg;
-                            } catch (err) {
-                                console.error('Error parsing error event data:', err);
-                            }
+                            } catch (err) {}
                             isStreaming.value = false;
                             messages.value.push({ role: 'assistant', content: 'Error: ' + errorMsg });
                         }
@@ -774,22 +839,10 @@ function connect(sessionId) {
                     const cronUrl = `/api/cron/stream/${sessionId}`;
                     cronEventSource = new EventSource(cronUrl);
                     
-                    cronEventSource.onerror = (err) => {
-                        console.log('[Cron SSE] Connection error, will auto-reconnect');
-                    };
-                    
-                    cronEventSource.onclose = (err) => {
-                        console.log('Cron SSE onclose');
-                    };
-                    
-                    cronEventSource.onopen = () => {
-                        console.log('Cron SSE Connected');
-                    };
+                    cronEventSource.onerror = () => {};
                     
                     cronEventSource.addEventListener('cron.message', (e) => {
-                        console.log('[Cron SSE] Received cron.message event', e);
                         const data = JSON.parse(e.data);
-                        console.log('[Cron SSE] Parsed data:', data);
                         const msg = {
                             id: e.lastEventId,
                             role: 'assistant',
@@ -801,7 +854,6 @@ function connect(sessionId) {
                             taskName: data.task_name,
                             triggerTime: data.trigger_time
                         };
-                        console.log('[Cron SSE] Created message:', msg);
                         messages.value.push(msg);
                         requestAnimationFrame(() => scrollBottom());
                     });
@@ -861,10 +913,8 @@ function connect(sessionId) {
                     
                     const clientMessageId = `client_${Date.now()}_${Math.random().toString(36).slice(2)}`;
                     const sessionId = currentSessionId.value;
-                    console.log('[sendMessage] Starting... sessionId:', sessionId);
                     
                     try {
-                        console.log('[sendMessage] Sending POST...');
                         const controller = new AbortController();
                         const timeout = setTimeout(() => controller.abort(), 180000);
                         const response = await fetch(`/api/chat/${sessionId}`, {
@@ -877,103 +927,17 @@ function connect(sessionId) {
                             signal: controller.signal
                         });
                         clearTimeout(timeout);
-                        console.log('[sendMessage] POST response received, status:', response.status);
                         
                         if (!response.ok) {
-                            console.error('[sendMessage] POST failed:', response.status);
                             isStreaming.value = false;
                             return;
                         }
                         
-                        // SSE is returned in the POST response body
-                        const reader = response.body.getReader();
-                        const decoder = new TextDecoder();
-                        let buffer = '';
-                        let currentEventType = '';
-                        let currentEventId = '';
-                        let currentEventData = {};
-                        
-                        const processSSEEvent = () => {
-                            console.log('[sendMessage] SSE event:', currentEventType, currentEventId);
-                            const msg = messages.value.find(m => m.id === currentEventId);
-                            
-                            if (currentEventType === 'message.chunk' && msg) {
-                                msg.content += currentEventData.delta || '';
-                                requestAnimationFrame(() => scrollBottom());
-                            } else if (currentEventType === 'message.thinking' && msg) {
-                                msg.thinking = (msg.thinking || '') + (currentEventData.delta || '');
-                                requestAnimationFrame(() => scrollBottom());
-                            } else if (currentEventType === 'message.tool_start' && msg) {
-                                msg.content += (msg.content ? '<br>' : '') + (currentEventData.tool_info || '[执行工具...]');
-                                msg.tool_calls = currentEventData.tool_calls || null;
-                                msg._isStreaming = false;
-                                nextTick(scrollBottom());
-                            } else if (currentEventType === 'message.end') {
-                                isStreaming.value = false;
-                                wsConnected.value = false;
-                            } else if (currentEventType === 'error') {
-                                isStreaming.value = false;
-                                wsConnected.value = false;
-                                messages.value.push({ role: 'assistant', content: 'Error: ' + (currentEventData.error || 'Unknown error') });
-                            }
-                        };
-                        
-                        const readEvents = () => {
-                            reader.read().then(({ done, value }) => {
-                                if (done) return;
-                                
-                                buffer += decoder.decode(value, { stream: true });
-                                const lines = buffer.split('\n');
-                                buffer = lines.pop() || '';
-                                
-                                for (const line of lines) {
-                                    if (line.startsWith('event:')) {
-                                        currentEventType = line.slice(6).trim();
-                                    } else if (line.startsWith('id:')) {
-                                        currentEventId = line.slice(3).trim();
-                                    } else if (line.startsWith('data:')) {
-                                        try {
-                                            currentEventData = JSON.parse(line.slice(5).trim());
-                                        } catch (e) {
-                                            currentEventData = {};
-                                        }
-                                    } else if (line === '') {
-                                        if (currentEventType === 'message.start') {
-                                            wsConnected.value = true;
-                                            const msg = {
-                                                id: currentEventId,
-                                                role: currentEventData.role || 'assistant',
-                                                content: '',
-                                                thinking: '',
-                                                _isStreaming: true,
-                                                timestamp: currentEventData.timestamp || Date.now()
-                                            };
-                                            messages.value.push(msg);
-                                            requestAnimationFrame(() => scrollBottom());
-                                        } else if (currentEventType) {
-                                            processSSEEvent();
-                                        }
-                                        currentEventType = '';
-                                        currentEventId = '';
-                                        currentEventData = {};
-                                    }
-                                }
-                                
-                                if (!done) readEvents();
-                            }).catch((err) => {
-                                console.error('[sendMessage] Stream read error:', err);
-                                isStreaming.value = false;
-                            });
-                        };
-                        
-                        readEvents();
+                        const result = await response.json();
                         
                     } catch (err) {
                         if (err.name === 'AbortError') {
-                            console.error('[sendMessage] Request timeout');
                             messages.value.push({ role: 'assistant', content: 'Error: Request timeout, please try again.' });
-                        } else {
-                            console.error('[sendMessage] Error:', err);
                         }
                         isStreaming.value = false;
                     }

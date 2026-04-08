@@ -545,6 +545,9 @@ _pending_cron_messages: Dict[str, list] = {}
 
 _event_id_to_message_id: Dict[str, str] = {}
 
+# Per-session streaming state: {session_id: {message_id, content, thinking, role, timestamp}}
+_session_stream_state: Dict[str, dict] = {}
+
 # Per-session lock for stream consumption to prevent multiple SSE consumers from
 # competing for the same session's output_queue events.
 # Using per-session lock instead of a global lock allows different sessions to
@@ -708,7 +711,7 @@ class ChatRequest(BaseModel):
 
 @router.post("/api/chat/{session_id}")
 async def chat_send_and_stream(session_id: str, request: ChatRequest):
-    """发送消息并通过 SSE 流式返回响应"""
+    """发送消息，AI响应通过GET /api/chat/stream/{session_id}的SSE获取"""
     if _websocket_api is None:
         raise HTTPException(status_code=500, detail="API not initialized")
 
@@ -731,61 +734,24 @@ async def chat_send_and_stream(session_id: str, request: ChatRequest):
 
     _event_id_to_message_id[message_id] = message_id
 
-    async def sse_generator():
-        try:
-            yield f"event: message.start\n"
-            yield f"id: {message_id}\n"
-            yield f"data: {json.dumps({'role': 'assistant', 'content': '', 'timestamp': time.time()})}\n\n"
+    await _websocket_api.push_event(session_id, user_event)
 
-            print(f"[chat_send_and_stream] Calling push_event for session {session_id}")
-            await _websocket_api.push_event(session_id, user_event)
-            print(f"[chat_send_and_stream] push_event completed")
+    return {"status": "ok", "message_id": message_id}
 
-            lock = await get_stream_lock(session_id)
-            async with lock:
-                iterator = _websocket_api.stream_events(session_id).__aiter__()
-                heartbeat_count = 0
-                max_heartbeats = 40
-                while True:
-                    try:
-                        stream_event = await asyncio.wait_for(
-                            iterator.__anext__(), timeout=30
-                        )
-                        heartbeat_count = 0
-                        sse_event = _transform_event_to_sse(stream_event, message_id)
-                        if sse_event is None:
-                            continue
-                        yield f"id: {sse_event['id']}\n"
-                        yield f"event: {sse_event['event']}\n"
-                        yield f"data: {json.dumps(sse_event['data'])}\n\n"
 
-                        if stream_event.type in ("stream.end", "error"):
-                            break
-                    except asyncio.TimeoutError:
-                        if heartbeat_count >= max_heartbeats:
-                            yield f"event: error\n"
-                            yield f"data: {json.dumps({'error': 'Stream timeout after extended inactivity'})}\n\n"
-                            break
-                        yield f": heartbeat\n\n"
-                        heartbeat_count += 1
-                    except StopAsyncIteration:
-                        break
-
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            yield f"event: error\n"
-            yield f"data: {json.dumps({'error': str(e)})}\n\n"
-
-    return StreamingResponse(
-        sse_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
-    )
+@router.get("/api/chat/state/{session_id}")
+async def chat_stream_state(session_id: str):
+    """获取当前会话的流式输出状态，用于前端切换回会话时恢复显示"""
+    state = _session_stream_state.get(session_id)
+    if state:
+        return state
+    return {
+        "message_id": None,
+        "content": "",
+        "thinking": "",
+        "role": "assistant",
+        "timestamp": 0,
+    }
 
 
 @router.get("/api/chat/stream/{session_id}")
@@ -808,7 +774,7 @@ async def chat_stream_subscribe(session_id: str):
                 yield f"event: session_waiting\n"
                 yield f"data: {json.dumps({'message': 'Waiting for session...'})}\n\n"
 
-                for _ in range(60):
+                for i in range(60):
                     await asyncio.sleep(1)
                     session = _websocket_api.get_session(session_id)
                     if session:
@@ -823,29 +789,73 @@ async def chat_stream_subscribe(session_id: str):
                 iterator = _websocket_api.stream_events(session_id).__aiter__()
                 heartbeat_count = 0
                 max_heartbeats = 40
+                message_started = False
+                current_msg_id = None  # Keep same msg_id for all chunks in a message
                 while True:
                     try:
-                        event = await asyncio.wait_for(iterator.__anext__(), timeout=30)
+                        event = await asyncio.wait_for(
+                            iterator.__anext__(), timeout=120
+                        )
                         heartbeat_count = 0
                         if event.type == "cron.message":
                             continue
-                        msg_id = event.payload.get("message_id")
-                        if not msg_id:
-                            msg_id = (
-                                f"evt_{event.event_id[:8]}"
-                                if event.event_id
-                                else f"unk_{time.time()}"
-                            )
-                        sse_event = _transform_event_to_sse(event, msg_id)
+
+                        # Only compute msg_id if we don't have one yet
+                        if current_msg_id is None:
+                            current_msg_id = event.payload.get("message_id")
+                            if not current_msg_id:
+                                current_msg_id = (
+                                    f"evt_{event.event_id[:8]}"
+                                    if event.event_id
+                                    else f"unk_{time.time()}"
+                                )
+
+                        # Emit message.start for the first chunk event
+                        if (
+                            event.type in ("stream.chunk", "stream.thinking")
+                            and not message_started
+                        ):
+                            yield f"id: {current_msg_id}\n"
+                            yield f"event: message.start\n"
+                            yield f"data: {json.dumps({'role': 'assistant', 'timestamp': time.time()})}\n\n"
+                            _session_stream_state[session_id] = {
+                                "message_id": current_msg_id,
+                                "content": "",
+                                "thinking": "",
+                                "role": "assistant",
+                                "timestamp": time.time(),
+                            }
+                            message_started = True
+
+                        sse_event = _transform_event_to_sse(event, current_msg_id)
                         if sse_event is None:
                             continue
+
+                        # Immediately yield SSE event without buffering
                         yield f"id: {sse_event['id']}\n"
                         yield f"event: {sse_event['event']}\n"
                         yield f"data: {json.dumps(sse_event['data'])}\n\n"
+
+                        # Update state for session recovery
+                        if session_id in _session_stream_state:
+                            if sse_event["event"] == "message.chunk":
+                                _session_stream_state[session_id]["content"] += (
+                                    sse_event["data"].get("delta", "")
+                                )
+                            elif sse_event["event"] == "message.thinking":
+                                _session_stream_state[session_id]["thinking"] += (
+                                    sse_event["data"].get("delta", "")
+                                )
+
+                        if sse_event["event"] in ("message.end", "error"):
+                            _session_stream_state.pop(session_id, None)
+                            message_started = False
+                            current_msg_id = None  # Reset for next message
+                            break  # Exit loop when stream ends
                     except asyncio.TimeoutError:
                         if heartbeat_count >= max_heartbeats:
                             yield f"event: error\n"
-                            yield f"data: {json.dumps({'error': 'Stream timeout after extended inactivity'})}\n\n"
+                            yield f"data: {json.dumps({'error': 'Stream timeout'})}\n\n"
                             break
                         yield f": heartbeat\n\n"
                         heartbeat_count += 1
