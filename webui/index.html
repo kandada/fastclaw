@@ -99,7 +99,7 @@
             <span class="header-title">FastClaw</span>
             <div class="ws-status">
                 <span class="ws-dot" :class="wsConnected === true ? 'connected' : (wsConnected === false ? 'standby' : 'connecting')"></span>
-                <span>{{ wsConnected === true ? 'Receiving' : (wsConnected === false ? 'Standby' : 'Connecting...') }}</span>
+                <span>{{ wsConnected === true ? 'Connected' : (wsConnected === false ? 'Standby' : 'Connecting...') }}</span>
             </div>
             <el-tabs v-model="activeTab" @tab-change="onTabChange" class="header-tabs">
                 <el-tab-pane label="Chat" name="chat"></el-tab-pane>
