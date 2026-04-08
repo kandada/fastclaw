@@ -13,5 +13,7 @@
     "max_tokens": 80000,
     "unload_threshold_tokens": 80000
   },
-  "extra_workspaces": []
+  "timeout": 300,
+  "extra_workspaces": [],
+  "created_at": 1774624922
 }
