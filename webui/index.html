@@ -643,7 +643,11 @@ function connect(sessionId) {
                     chatEventSource = new EventSource(chatUrl);
                     
                     chatEventSource.onerror = (err) => {
-                        console.log('Chat SSE onerror');
+                        console.log('[Chat SSE] Connection error, will auto-reconnect');
+                        wsConnected.value = false;
+                        if (isStreaming.value) {
+                            isStreaming.value = false;
+                        }
                     };
                     
                     chatEventSource.onclose = (err) => {
@@ -771,7 +775,7 @@ function connect(sessionId) {
                     cronEventSource = new EventSource(cronUrl);
                     
                     cronEventSource.onerror = (err) => {
-                        console.log('Cron SSE onerror');
+                        console.log('[Cron SSE] Connection error, will auto-reconnect');
                     };
                     
                     cronEventSource.onclose = (err) => {
@@ -861,14 +865,18 @@ function connect(sessionId) {
                     
                     try {
                         console.log('[sendMessage] Sending POST...');
+                        const controller = new AbortController();
+                        const timeout = setTimeout(() => controller.abort(), 180000);
                         const response = await fetch(`/api/chat/${sessionId}`, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
                                 text: text,
                                 client_message_id: clientMessageId
-                            })
+                            }),
+                            signal: controller.signal
                         });
+                        clearTimeout(timeout);
                         console.log('[sendMessage] POST response received, status:', response.status);
                         
                         if (!response.ok) {
@@ -952,13 +960,21 @@ function connect(sessionId) {
                                 }
                                 
                                 if (!done) readEvents();
+                            }).catch((err) => {
+                                console.error('[sendMessage] Stream read error:', err);
+                                isStreaming.value = false;
                             });
                         };
                         
                         readEvents();
                         
                     } catch (err) {
-                        console.error('[sendMessage] Error:', err);
+                        if (err.name === 'AbortError') {
+                            console.error('[sendMessage] Request timeout');
+                            messages.value.push({ role: 'assistant', content: 'Error: Request timeout, please try again.' });
+                        } else {
+                            console.error('[sendMessage] Error:', err);
+                        }
                         isStreaming.value = false;
                     }
                     

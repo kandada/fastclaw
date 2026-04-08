@@ -607,10 +607,12 @@ async def fastclaw_agent(state: dict, event: Event) -> dict:
     state["messages"] = fix_invalid_tool_calls(state["messages"])
 
     llm_config = agent_config.get("llm", {})
+    llm_timeout = llm_config.get("timeout", 300)
 
     client = AsyncOpenAI(
         api_key=llm_config.get("api_key", ""),
         base_url=llm_config.get("base_url", "https://api.deepseek.com/v1"),
+        timeout=llm_timeout,
     )
 
     extra_workspaces = agent_config.get("extra_workspaces", [])

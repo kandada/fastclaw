@@ -743,18 +743,32 @@ async def chat_send_and_stream(session_id: str, request: ChatRequest):
 
             lock = await get_stream_lock(session_id)
             async with lock:
-                async for stream_event in _websocket_api.stream_events(session_id):
-                    # print(
-                    #     f"[chat_send_and_stream] stream_event: type={stream_event.type}, event_id={stream_event.event_id}"
-                    # )
-                    sse_event = _transform_event_to_sse(stream_event, message_id)
-                    if sse_event is None:
-                        continue
-                    yield f"id: {sse_event['id']}\n"
-                    yield f"event: {sse_event['event']}\n"
-                    yield f"data: {json.dumps(sse_event['data'])}\n\n"
+                iterator = _websocket_api.stream_events(session_id).__aiter__()
+                heartbeat_count = 0
+                max_heartbeats = 40
+                while True:
+                    try:
+                        stream_event = await asyncio.wait_for(
+                            iterator.__anext__(), timeout=30
+                        )
+                        heartbeat_count = 0
+                        sse_event = _transform_event_to_sse(stream_event, message_id)
+                        if sse_event is None:
+                            continue
+                        yield f"id: {sse_event['id']}\n"
+                        yield f"event: {sse_event['event']}\n"
+                        yield f"data: {json.dumps(sse_event['data'])}\n\n"
 
-                    if stream_event.type in ("stream.end", "error"):
+                        if stream_event.type in ("stream.end", "error"):
+                            break
+                    except asyncio.TimeoutError:
+                        if heartbeat_count >= max_heartbeats:
+                            yield f"event: error\n"
+                            yield f"data: {json.dumps({'error': 'Stream timeout after extended inactivity'})}\n\n"
+                            break
+                        yield f": heartbeat\n\n"
+                        heartbeat_count += 1
+                    except StopAsyncIteration:
                         break
 
         except asyncio.CancelledError:
@@ -805,22 +819,43 @@ async def chat_stream_subscribe(session_id: str):
                     yield f"data: {json.dumps({'message': 'Session timeout'})}\n\n"
                     return
 
-            async for event in _websocket_api.stream_events(session_id):
-                if event.type == "cron.message":
-                    continue
-                msg_id = event.payload.get("message_id")
-                if not msg_id:
-                    msg_id = (
-                        f"evt_{event.event_id[:8]}"
-                        if event.event_id
-                        else f"unk_{time.time()}"
-                    )
-                sse_event = _transform_event_to_sse(event, msg_id)
-                if sse_event is None:
-                    continue
-                yield f"id: {sse_event['id']}\n"
-                yield f"event: {sse_event['event']}\n"
-                yield f"data: {json.dumps(sse_event['data'])}\n\n"
+            try:
+                iterator = _websocket_api.stream_events(session_id).__aiter__()
+                heartbeat_count = 0
+                max_heartbeats = 40
+                while True:
+                    try:
+                        event = await asyncio.wait_for(iterator.__anext__(), timeout=30)
+                        heartbeat_count = 0
+                        if event.type == "cron.message":
+                            continue
+                        msg_id = event.payload.get("message_id")
+                        if not msg_id:
+                            msg_id = (
+                                f"evt_{event.event_id[:8]}"
+                                if event.event_id
+                                else f"unk_{time.time()}"
+                            )
+                        sse_event = _transform_event_to_sse(event, msg_id)
+                        if sse_event is None:
+                            continue
+                        yield f"id: {sse_event['id']}\n"
+                        yield f"event: {sse_event['event']}\n"
+                        yield f"data: {json.dumps(sse_event['data'])}\n\n"
+                    except asyncio.TimeoutError:
+                        if heartbeat_count >= max_heartbeats:
+                            yield f"event: error\n"
+                            yield f"data: {json.dumps({'error': 'Stream timeout after extended inactivity'})}\n\n"
+                            break
+                        yield f": heartbeat\n\n"
+                        heartbeat_count += 1
+                    except StopAsyncIteration:
+                        break
+            except asyncio.CancelledError:
+                pass
+            except Exception as e:
+                yield f"event: error\n"
+                yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
         except asyncio.CancelledError:
             pass
