@@ -1,6 +1,6 @@
 # FastClaw
 
-一款 python 版的轻量但强大的龙虾。
+一款 python 版的轻量但强大的龙虾，是灵活可靠的通用 AI Agent, 尤其擅长处理数据科学领域的任务。
 
 ## PyPI 安装（推荐）
 
@@ -101,6 +101,12 @@ FastClaw 基于**事件驱动的 Agent 编排**核心概念。主要设计原则
 ## 开源许可
 
 GPL-3.0
+
+版权所有 © 2024-2026 xiefujin。保留所有权利。
+
+## 官网
+
+[https://www.fastclaw.world/](https://www.fastclaw.world/)
 
 ## 致谢
 

@@ -102,6 +102,12 @@ FastClaw is built on the core concept of **event-driven agent orchestration**. K
 
 GPL-3.0
 
+Copyright (c) 2024-2026 xiefujin. All rights reserved.
+
+## Official Website
+
+[https://www.fastclaw.world/](https://www.fastclaw.world/)
+
 ## Acknowledgments
 
 Inspired by [OpenClaw](https://github.com/openclaw/openclaw). Special thanks to the open source community.
