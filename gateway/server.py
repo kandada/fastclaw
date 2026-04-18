@@ -70,6 +70,11 @@ class GatewayServer:
                 StaticFiles(directory=str(WEBUI_DIR / "static")),
                 name="webui_static",
             )
+            self.app.mount(
+                "/webui",
+                StaticFiles(directory=str(WEBUI_DIR), html=True),
+                name="webui_files",
+            )
 
         @self.app.get("/")
         async def root_page():
