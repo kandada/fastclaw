@@ -106,7 +106,7 @@ Copyright (c) 2024-2026 xiefujin. All rights reserved.
 
 ## Official Website
 
-[https://www.fastclaw.world/](https://www.fastclaw.world/)
+[https://www.fastclaw.world/](https://www.fastclaw.world/) | [https://fastclaw-ai.com/](https://fastclaw-ai.com/)
 
 ## Acknowledgments
 

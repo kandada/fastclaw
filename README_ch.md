@@ -106,7 +106,7 @@ GPL-3.0
 
 ## 官网
 
-[https://www.fastclaw.world/](https://www.fastclaw.world/)
+[https://www.fastclaw.world/](https://www.fastclaw.world/) | [https://fastclaw-ai.com/](https://fastclaw-ai.com/)
 
 ## 致谢
 
