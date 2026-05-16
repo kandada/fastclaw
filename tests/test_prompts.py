@@ -19,8 +19,8 @@ class TestSystemPrompt:
 
     def test_system_prompt_contains_work_modes(self):
         """System Prompt 包含工作模式说明"""
-        assert "边说边做" in SYSTEM_PROMPT or "一边" in SYSTEM_PROMPT
-        assert "先思考后行动" in SYSTEM_PROMPT or "思考" in SYSTEM_PROMPT
+        assert "Talk while doing" in SYSTEM_PROMPT or "think then act" in SYSTEM_PROMPT.lower()
+        assert "Think then act" in SYSTEM_PROMPT or "think" in SYSTEM_PROMPT.lower()
 
     def test_system_prompt_contains_tools_examples(self):
         """System Prompt 包含工具示例"""

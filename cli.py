@@ -66,8 +66,8 @@ async def chat(new_session=False, session_id=None):
             session_id = create_cli_session()
 
     print("=" * 50)
-    print("FastClaw CLI (输入 'quit' 退出)")
-    print("支持命令: /new, /clear, /session <id>, /session_list")
+    print("FastClaw CLI (type 'quit' to exit)")
+    print("Commands: /new, /clear, /session <id>, /session_list")
     print("=" * 50)
 
     async def consume_stream():
@@ -83,11 +83,11 @@ async def chat(new_session=False, session_id=None):
                     if not thinking_shown:
                         thinking_shown = True
                         thinking_buffer = ""
-                        print(f"{colored('[思考中...] ', 'cyan')}", end="", flush=True)
+                        print(f"{colored('[Thinking...] ', 'cyan')}", end="", flush=True)
                     thinking_buffer += delta_clean
                     display_text = thinking_buffer[:200]
                     print(
-                        f"\r{colored('[思考中...] ', 'cyan')}{display_text}",
+                        f"\r{colored('[Thinking...] ', 'cyan')}{display_text}",
                         end="",
                         flush=True,
                     )
@@ -139,12 +139,12 @@ async def chat(new_session=False, session_id=None):
                         print("\r", end="", flush=True)
                         thinking_shown = False
                         thinking_buffer = ""
-                    print(f"\n[错误: {event.payload.get('error', '未知错误')}]")
+                    print(f"\n[Error: {event.payload.get('error', 'Unknown error')}]")
                     return None
         except asyncio.CancelledError:
             return buffer
         except Exception as e:
-            print(f"\n[异常: {e}]")
+            print(f"\n[Error: {e}]")
             return buffer
 
     async def handle_cli_command(
@@ -156,7 +156,7 @@ async def chat(new_session=False, session_id=None):
 
         if text == "/new":
             new_session_id = create_cli_session()
-            print(f"\n已创建新会话: {new_session_id}")
+            print(f"\nNew session created: {new_session_id}")
             return True, new_session_id
 
         elif text == "/clear":
@@ -166,7 +166,7 @@ async def chat(new_session=False, session_id=None):
             messages_file = session_dir / "messages.jsonl"
             if messages_file.exists():
                 messages_file.unlink()
-            print(f"\n已清空当前会话 {current_session_id} 的聊天记录")
+            print(f"\nCleared chat history for session {current_session_id}")
             return True, current_session_id
 
         elif text.startswith("/session "):
@@ -175,29 +175,29 @@ async def chat(new_session=False, session_id=None):
                 target_id = parts[1].strip()
                 sessions = load_sessions()
                 if target_id in sessions:
-                    print(f"\n已切换到会话: {target_id}")
+                    print(f"\nSwitched to session: {target_id}")
                     new_session_id = target_id
                 else:
-                    print(f"\n未找到会话: {target_id}")
+                    print(f"\nSession not found: {target_id}")
                 return True, current_session_id
 
         elif text == "/session_list":
             sessions = load_sessions()
             if sessions:
-                print("\n当前所有会话:")
+                print("\nAll sessions:")
                 for sid, info in sessions.items():
-                    marker = " <-- 当前" if sid == current_session_id else ""
+                    marker = " <-- current" if sid == current_session_id else ""
                     agent = info.get("agent_id", "unknown")
                     print(f"  - {sid} (agent: {agent}){marker}")
             else:
-                print("\n当前没有会话")
+                print("\nNo active sessions")
             return True, current_session_id
 
         return False, current_session_id
 
     while True:
         try:
-            user_input = input(f"\n你 ({session_id}): ").strip()
+            user_input = input(f"\nYou ({session_id}): ").strip()
             if not user_input:
                 continue
             if user_input.lower() == "quit":
@@ -216,13 +216,13 @@ async def chat(new_session=False, session_id=None):
             await consume_stream()
 
         except KeyboardInterrupt:
-            print("\n\n退出...")
+            print("\n\nExiting...")
             break
         except EOFError:
-            print("\n\n退出...")
+            print("\n\nExiting...")
             break
         except Exception as e:
-            print(f"\n错误: {e}")
+            print(f"\nError: {e}")
 
     await api.stop()
 

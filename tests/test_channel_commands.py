@@ -76,8 +76,8 @@ class TestChannelCommands:
 
             assert result[0] is True, "/new should return True"
             assert len(sent_messages) == 1
-            assert "已创建新会话" in sent_messages[0]["msg"]
-            assert "会话 ID：" in sent_messages[0]["msg"]
+            assert "New session created" in sent_messages[0]["msg"]
+            assert "ID:" in sent_messages[0]["msg"]
         finally:
             handlers.SESSION_DB_FILE = original_file
 
@@ -124,7 +124,7 @@ class TestChannelCommands:
 
             assert result[0] is True, "/clear should return True"
             assert len(sent_messages) == 1
-            assert "已清空" in sent_messages[0]["msg"]
+            assert "Cleared chat history" in sent_messages[0]["msg"]
             assert "test_session" in sent_messages[0]["msg"]
         finally:
             handlers.SESSION_DB_FILE = original_file
@@ -172,7 +172,7 @@ class TestChannelCommands:
             assert result[0] is True, "/session_list should return True"
             assert len(sent_messages) == 1
             reply = sent_messages[0]["msg"]
-            assert "当前所有会话" in reply
+            assert "All sessions" in reply
             assert "session_001" in reply
             assert "session_002" in reply
         finally:
@@ -216,7 +216,7 @@ class TestChannelCommands:
 
             assert result[0] is True, "/session should return True"
             assert len(sent_messages) == 1
-            assert "已切换到会话" in sent_messages[0]["msg"]
+            assert "Switched to session" in sent_messages[0]["msg"]
             assert "target_session" in sent_messages[0]["msg"]
         finally:
             handlers.SESSION_DB_FILE = original_file
@@ -250,7 +250,7 @@ class TestChannelCommands:
 
             assert result[0] is True
             assert len(sent_messages) == 1
-            assert "未找到会话" in sent_messages[0]["msg"]
+            assert "Session not found" in sent_messages[0]["msg"]
         finally:
             handlers.SESSION_DB_FILE = original_file
 
@@ -347,7 +347,7 @@ class TestChannelMessageWithCommands:
 
             assert result[0] is True, "Command message should be handled"
             assert len(sent_messages) == 1
-            assert "已创建新会话" in sent_messages[0]["msg"]
+            assert "New session created" in sent_messages[0]["msg"]
         finally:
             handlers.SESSION_DB_FILE = original_file
 

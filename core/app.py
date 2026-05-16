@@ -289,7 +289,7 @@ SKILLS = load_skills()
 
 SKILLS_LIST = (
     "\n".join([f"- {name}: {info['description']}" for name, info in SKILLS.items()])
-    or "- (暂无内置 Skills)"
+    or "- (No built-in skills)"
 )
 
 SYSTEM_PROMPT_TEMPLATE = SYSTEM_PROMPT.replace("{skills_list}", SKILLS_LIST)
@@ -298,57 +298,46 @@ WORKSPACE_PATH = Path("workspace").resolve()
 CONFIRM_PREFIX = "CONFIRM:"
 
 DENY_PATTERNS = [
-    # 递归删除根目录
-    (re.compile(r"rm\s+-rf\s+/\s*$"), "rm -rf / （根目录递归删除，会销毁系统）"),
-    (re.compile(r"rm\s+-rf\s+/\s"), "rm -rf / （根目录递归删除，会销毁系统）"),
-    # 磁盘分区格式化
-    (re.compile(r"\bmkfs\b"), "mkfs （格式化磁盘，会销毁数据）"),
-    (re.compile(r"\bmkfs\."), "mkfs.* （格式化磁盘，会销毁数据）"),
-    (re.compile(r"\bnewfs\b"), "newfs （创建文件系统，会销毁数据）"),
-    (re.compile(r"\bwipefs\b"), "wipefs （擦除文件系统头）"),
-    # 直接写入设备
-    (re.compile(r"\bdd\s+.*of=/dev/"), "dd 写入设备 （可能破坏磁盘）"),
-    (re.compile(r"\bdd\s+.*of=/dev/sd"), "dd 写入设备 （可能破坏磁盘）"),
-    (re.compile(r"\bdd\s+.*of=/dev/nvme"), "dd 写入设备 （可能破坏磁盘）"),
-    # 分区操作
-    (re.compile(r"\bfdisk\b.*-d"), "fdisk -d （删除分区）"),
-    (re.compile(r"\bparted\b.*rm"), "parted rm （删除分区）"),
-    (re.compile(r"\bsfdisk\b.*-d"), "sfdisk -d （删除分区）"),
-    # 加密卷操作（可能永久丢失数据）
-    (re.compile(r"\bcryptsetup\b.*lukserase"), "cryptsetup luksErase （擦除加密头）"),
-    (re.compile(r"\bcryptsetup\b.*luksclose"), "cryptsetup luksClose （关闭加密卷）"),
-    (re.compile(r"\bveracrypt\b.*-d"), "veracrypt -d （解密卷，会丢失数据）"),
-    # 强制终止关键进程
-    (re.compile(r"\bkill\s+-9\s+1\b"), "kill -9 1 （终止init进程）"),
-    (re.compile(r"\bpkill\s+-9\s+-1\b"), "pkill -9 -1 （终止所有进程）"),
-    (re.compile(r"\bkillall\s+-9\b"), "killall -9 （强制终止所有进程）"),
-    # 修改系统关键属性
+    (re.compile(r"rm\s+-rf\s+/\s*$"), "rm -rf / (recursive root deletion, destroys system)"),
+    (re.compile(r"rm\s+-rf\s+/\s"), "rm -rf / (recursive root deletion, destroys system)"),
+    (re.compile(r"\bmkfs\b"), "mkfs (format disk, destroys data)"),
+    (re.compile(r"\bmkfs\."), "mkfs.* (format disk, destroys data)"),
+    (re.compile(r"\bnewfs\b"), "newfs (create filesystem, destroys data)"),
+    (re.compile(r"\bwipefs\b"), "wipefs (erase filesystem header)"),
+    (re.compile(r"\bdd\s+.*of=/dev/"), "dd write to device (may corrupt disk)"),
+    (re.compile(r"\bdd\s+.*of=/dev/sd"), "dd write to device (may corrupt disk)"),
+    (re.compile(r"\bdd\s+.*of=/dev/nvme"), "dd write to device (may corrupt disk)"),
+    (re.compile(r"\bfdisk\b.*-d"), "fdisk -d (delete partition)"),
+    (re.compile(r"\bparted\b.*rm"), "parted rm (delete partition)"),
+    (re.compile(r"\bsfdisk\b.*-d"), "sfdisk -d (delete partition)"),
+    (re.compile(r"\bcryptsetup\b.*lukserase"), "cryptsetup luksErase (erase LUKS header)"),
+    (re.compile(r"\bcryptsetup\b.*luksclose"), "cryptsetup luksClose (close encrypted volume)"),
+    (re.compile(r"\bveracrypt\b.*-d"), "veracrypt -d (decrypt volume, loses data)"),
+    (re.compile(r"\bkill\s+-9\s+1\b"), "kill -9 1 (kill init process)"),
+    (re.compile(r"\bpkill\s+-9\s+-1\b"), "pkill -9 -1 (kill all processes)"),
+    (re.compile(r"\bkillall\s+-9\b"), "killall -9 (force kill all processes)"),
     (
         re.compile(r"\bchattr\s+-i\b.*(passwd|shadow|group|gshadow)"),
-        "chattr -i 锁定系统文件",
+        "chattr -i lock system files",
     ),
     (
         re.compile(r"\bchattr\s+-a\b.*(passwd|shadow|group|gshadow)"),
-        "chattr -a 修改系统文件",
+        "chattr -a modify system files",
     ),
 ]
 
 ASK_USER_PATTERNS = [
-    # 递归删除（当前目录或可能误删）
-    (re.compile(r"rm\s+-rf\s+\*\s*$"), "rm -rf * （递归删除，可能误删重要文件）"),
-    (re.compile(r"rm\s+-rf\s+\."), "rm -rf . （删除当前目录）"),
-    # Fork炸弹
-    (re.compile(r":\(\)\{:\|:&\};:"), "fork 炸弹 （会让系统资源耗尽）"),
-    # 系统关闭/重启
-    (re.compile(r"\bshutdown\b"), "shutdown （关闭系统）"),
-    (re.compile(r"\breboot\b"), "reboot （重启系统）"),
-    (re.compile(r"\bhalt\b"), "halt （关闭系统）"),
-    (re.compile(r"\bpoweroff\b"), "poweroff （关闭系统）"),
-    (re.compile(r"\binit\s+0\b"), "init 0 （关闭系统）"),
-    (re.compile(r"\binit\s+6\b"), "init 6 （重启系统）"),
-    # 危险的重定向
-    (re.compile(r">\s*/dev/sd"), "重定向到磁盘设备 （可能破坏数据）"),
-    (re.compile(r">\s*/dev/null\s*>&"), "重定向到 null 并关闭输出 （可能丢失数据）"),
+    (re.compile(r"rm\s+-rf\s+\*\s*$"), "rm -rf * (recursive delete, may remove important files)"),
+    (re.compile(r"rm\s+-rf\s+\."), "rm -rf . (delete current directory)"),
+    (re.compile(r":\(\)\{:\|:&\};:"), "fork bomb (exhausts system resources)"),
+    (re.compile(r"\bshutdown\b"), "shutdown (shut down system)"),
+    (re.compile(r"\breboot\b"), "reboot (reboot system)"),
+    (re.compile(r"\bhalt\b"), "halt (halt system)"),
+    (re.compile(r"\bpoweroff\b"), "poweroff (power off system)"),
+    (re.compile(r"\binit\s+0\b"), "init 0 (shut down system)"),
+    (re.compile(r"\binit\s+6\b"), "init 6 (reboot system)"),
+    (re.compile(r">\s*/dev/sd"), "redirect to disk device (may corrupt data)"),
+    (re.compile(r">\s*/dev/null\s*>&"), "redirect to null and close output (may lose data)"),
 ]
 
 SYSTEM_CORE_PATHS = [
@@ -388,14 +377,14 @@ def check_command_permission(
         if pattern.search(command_lower):
             return (
                 "deny",
-                f"禁止执行危险命令（{desc}），此操作被系统拦截，如需执行请使用其他安全方式",
+                f"Dangerous command blocked ({desc}). Use a safer approach if needed.",
             )
 
     for pattern, desc in ASK_USER_PATTERNS:
         if pattern.search(command_lower):
             return (
                 "ask_user",
-                f"检测到敏感操作（{desc}），当前你的这个操作是有限制的，请询问用户是否同意，同意后可继续操作。确认后可输入：{CONFIRM_PREFIX} <原命令>",
+                f"Sensitive operation detected ({desc}). Ask the user for permission. If confirmed, re-run with: {CONFIRM_PREFIX} <command>",
             )
 
     command_paths = extract_paths_from_command(command)
@@ -438,7 +427,7 @@ def check_command_permission(
     elif is_system_core_path or is_code_core_path:
         return (
             "ask_user",
-            f"当前你的这个操作是有限制的，请询问用户是否同意，同意后可继续操作。确认后可输入：{CONFIRM_PREFIX} <原命令>",
+            f"This operation is restricted. Ask the user for permission. If confirmed, re-run with: {CONFIRM_PREFIX} <command>",
         )
     else:
         return "allow", ""
@@ -463,7 +452,7 @@ def extract_paths_from_command(command: str) -> list:
     return paths
 
 
-@app.tool(name="run_shell", description="执行Shell命令并返回输出，可通过max_length控制返回内容长度")
+@app.tool(name="run_shell", description="Execute a shell command and return output. Use max_length to control output length.")
 async def run_shell(command: str, max_length: int = 8000, state: dict = None) -> str:
     confirmed = False
     if command.startswith(CONFIRM_PREFIX):
@@ -518,19 +507,19 @@ if _shell_tool:
     _schema = _shell_tool.to_openai_schema()
     _props = _schema.get("function", {}).get("parameters", {}).get("properties", {})
     if "command" in _props:
-        _props["command"]["description"] = "要执行的Shell命令"
+        _props["command"]["description"] = "The shell command to execute"
     if "max_length" in _props:
-        _props["max_length"]["description"] = "输出最大字符数，默认8000；传-1获取全部输出（可选参数）"
+        _props["max_length"]["description"] = "Maximum output characters. Default 8000. Pass -1 for full output (optional)."
     _shell_tool.schema = _schema
 
 
-@app.tool(name="run_skills", description="执行预定义的技能")
+@app.tool(name="run_skills", description="Execute a predefined skill")
 async def run_skills(skill_name: str = None, params: dict = None) -> str:
     params = params or {}
     if skill_name in ("__list__", "list", None, ""):
         if not SKILLS:
-            return "暂无可用技能"
-        lines = ["可用技能列表:"]
+            return "No skills available"
+        lines = ["Available skills:"]
         for name, info in SKILLS.items():
             lines.append(f"- {name}: {info['description']}")
         return "\n".join(lines)

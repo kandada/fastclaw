@@ -7,7 +7,7 @@ FastClaw - AI Agent Framework
 3. pip 安装后: fastclaw start
 """
 
-__version__ = "1.1.2"
+__version__ = "1.1.3"
 
 import os
 import sys

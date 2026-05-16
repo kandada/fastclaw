@@ -36,10 +36,12 @@ if __package__ in (None, ""):
     from core.app import start
     from gateway.server import GatewayServer
     from cli import chat as cli_chat
+    from core.skills_sync import sync_skills_if_missing
 else:
     from .core.app import start
     from .gateway.server import GatewayServer
     from .cli import chat as cli_chat
+    from .core.skills_sync import sync_skills_if_missing
 
 PID_FILE = "/tmp/fastclaw.pid"
 _http_opener = None
@@ -157,6 +159,24 @@ def list_skills():
         print(f"Error: {e}")
 
 
+def skills_sync():
+    """从 GitHub 下载 Skills"""
+    ws_path_str = os.environ.get("FASTCLAW_WORKSPACE")
+    if not ws_path_str:
+        print("Error: FASTCLAW_WORKSPACE not set")
+        return
+    ws_path = Path(ws_path_str)
+    if not ws_path.is_dir():
+        print(f"Workspace not found: {ws_path}")
+        reply = input("Create it now? [Y/n]: ").strip().lower()
+        if reply not in ("", "y", "yes"):
+            print("Aborted")
+            return
+        ws_path.mkdir(parents=True, exist_ok=True)
+
+    sync_skills_if_missing(ws_path)
+
+
 def list_agents():
     """列出所有Agent"""
     try:
@@ -255,6 +275,7 @@ Commands:
   skill list                  List all skills
   skill info <name>           Show skill details
   skill test <name>           Test skill
+  skill sync                  Download missing skills from GitHub
 
     agent list                  List all agents
     agent add                   Add new agent (interactive)
@@ -305,9 +326,11 @@ async def main():
         sub = raw_args[1] if len(raw_args) > 1 else None
         if sub == "list":
             list_skills()
+        elif sub == "sync":
+            skills_sync()
         else:
             print(f"Unknown subcommand: {sub}")
-            print("Use 'skill list'")
+            print("Use 'skill list' or 'skill sync'")
         return
 
     elif cmd == "agent":
@@ -350,6 +373,12 @@ async def main():
 
         check_pid_file()
         setup_signal_handlers()
+
+        ws_path_str = os.environ.get("FASTCLAW_WORKSPACE")
+        if ws_path_str:
+            ws_path = Path(ws_path_str)
+            if ws_path.is_dir():
+                sync_skills_if_missing(ws_path)
 
         print("Starting FastClaw...")
 

@@ -344,7 +344,7 @@ class TestThinkingAndToolInfo:
         assert "测试响应" in reply or "响应" in reply, (
             f"Reply should contain response text, got: {reply}"
         )
-        assert "[思考...]" in reply, (
+        assert "[Thinking...]" in reply, (
             f"Reply should contain [思考...] label, got: {reply}"
         )
 
@@ -381,7 +381,7 @@ class TestThinkingAndToolInfo:
         assert "测试响应" in reply or "响应" in reply, (
             f"Reply should contain response text, got: {reply}"
         )
-        assert "[工具执行...]" in reply or "get_weather" in reply, (
+        assert "[Tool executing...]" in reply or "get_weather" in reply, (
             f"Reply should contain [工具执行...] label, got: {reply}"
         )
 
@@ -415,8 +415,8 @@ class TestThinkingAndToolInfo:
 
         assert len(sent_messages) > 0, "Should send message"
         reply = sent_messages[0]["msg"]
-        assert "[思考...]" in reply, f"Reply should contain [思考...], got: {reply}"
-        assert "[工具执行...]" in reply or "get_weather" in reply, (
+        assert "[Thinking...]" in reply, f"Reply should contain [思考...], got: {reply}"
+        assert "[Tool executing...]" in reply or "get_weather" in reply, (
             f"Reply should contain [工具执行...], got: {reply}"
         )
 
@@ -450,8 +450,8 @@ class TestThinkingAndToolInfo:
 
         assert len(sent_messages) > 0, "Should send message"
         reply = sent_messages[0]["msg"]
-        assert "[思考]" not in reply, (
-            f"Reply should NOT contain [思考] when disabled, got: {reply}"
+        assert "[Thinking" not in reply, (
+            f"Reply should NOT contain [Thinking] when disabled, got: {reply}"
         )
 
 
@@ -496,10 +496,10 @@ class TestChannelCommands:
 
                 assert len(sent_messages) > 0, "Should send reply"
                 reply = sent_messages[0]["msg"]
-                assert "已创建新会话" in reply, (
+                assert "New session created" in reply, (
                     f"Should confirm new session, got: {reply}"
                 )
-                assert "会话 ID：" in reply, f"Should contain session_id, got: {reply}"
+                assert "ID:" in reply, f"Should contain session_id, got: {reply}"
             finally:
                 h.SESSION_DB_FILE = original_file
 
@@ -550,7 +550,7 @@ class TestChannelCommands:
 
                 assert len(sent_messages) > 0, "Should send reply"
                 reply = sent_messages[0]["msg"]
-                assert "当前所有会话" in reply, f"Should list sessions, got: {reply}"
+                assert "All sessions" in reply, f"Should list sessions, got: {reply}"
                 assert "test_session_1" in reply, (
                     f"Should contain session id, got: {reply}"
                 )
@@ -608,7 +608,7 @@ class TestChannelCommands:
 
                 assert len(sent_messages) > 0, "Should send reply"
                 reply = sent_messages[0]["msg"]
-                assert "已清空" in reply, f"Should confirm clear, got: {reply}"
+                assert "Cleared chat history" in reply, f"Should confirm clear, got: {reply}"
 
                 assert h.SESSION_DB_FILE == temp_db
             finally:

@@ -91,7 +91,7 @@ async def handle_channel_command(
         }
         save_sessions(sessions)
 
-        reply = f"已创建新会话，会话 ID：{new_session_id}"
+        reply = f"New session created. ID: {new_session_id}"
         print(f"[{channel_name}] /new -> {new_session_id}")
         await send_func(reply, sender_id)
         return True, new_session_id
@@ -111,7 +111,7 @@ async def handle_channel_command(
             sessions[session_id]["last_active_time"] = int(time.time())
             save_sessions(sessions)
 
-        reply = f"已清空当前会话（{session_id}）的聊天记录"
+        reply = f"Cleared chat history for session {session_id}"
         print(f"[{channel_name}] /clear -> {session_id}")
         await send_func(reply, sender_id)
         return True, session_id
@@ -123,12 +123,12 @@ async def handle_channel_command(
             sessions = load_sessions()
 
             if target_session_id in sessions:
-                reply = f"已切换到会话：{target_session_id}"
+                reply = f"Switched to session: {target_session_id}"
                 print(f"[{channel_name}] /session {target_session_id}")
                 await send_func(reply, sender_id)
                 return True, target_session_id
             else:
-                reply = f"未找到会话：{target_session_id}"
+                reply = f"Session not found: {target_session_id}"
                 print(f"[{channel_name}] /session {target_session_id} - not found")
                 await send_func(reply, sender_id)
                 return True, sender_id
@@ -136,13 +136,13 @@ async def handle_channel_command(
     elif text == "/session_list":
         sessions = load_sessions()
         if sessions:
-            lines = ["当前所有会话："]
+            lines = ["All sessions:"]
             for sid, info in sessions.items():
                 agent = info.get("agent_id", "unknown")
                 lines.append(f"- {sid} (agent: {agent})")
             reply = "\n".join(lines)
         else:
-            reply = "当前没有会话"
+            reply = "No active sessions"
         print(f"[{channel_name}] /session_list -> {len(sessions)} sessions")
         await send_func(reply, sender_id)
         return True, sender_id
@@ -157,7 +157,7 @@ async def handle_channel_message(
     api,
     send_func: Callable[[str, str], Awaitable[dict]],
     timeout: float = 60.0,
-    default_reply: str = "消息已收到",
+    default_reply: str = "Message received",
     include_thinking: bool = True,
     include_tools: bool = True,
 ) -> tuple[bool, str]:
@@ -231,7 +231,7 @@ async def handle_channel_message(
                             if current_section is not None:
                                 end_current_section()
                             current_section = "thinking"
-                            output_parts.append("[思考...]\n")
+                            output_parts.append("[Thinking...]\n")
                         output_parts.append(delta)
                         has_output = True
 
@@ -241,7 +241,7 @@ async def handle_channel_message(
                         if current_section is not None:
                             end_current_section()
                         current_section = "tool"
-                        output_parts.append("[工具执行...]\n")
+                        output_parts.append("[Tool executing...]\n")
                         calls = stream_event.payload.get("tool_calls", [])
                         for tc in calls:
                             func_name = tc.get("function", {}).get("name", "")

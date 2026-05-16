@@ -207,7 +207,7 @@ async def create_agent(request: Request):
 
     agent_dir.mkdir(parents=True, exist_ok=True)
 
-    soul_content = data.get("soul_content", f"# {name}\n\n你是一个智能助手。\n")
+    soul_content = data.get("soul_content", f"# {name}\n\nYou are a smart assistant.\n")
     soul_file = agent_dir / "SOUL.md"
     soul_file.write_text(soul_content)
 
