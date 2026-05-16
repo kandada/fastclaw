@@ -542,6 +542,7 @@ _websocket_api = None
 _cron_sse_queues: Dict[str, asyncio.Queue] = {}
 _unread_counts: Dict[str, int] = {}
 _pending_cron_messages: Dict[str, list] = {}
+_pending_cron_info: Dict[str, dict] = {}
 
 _event_id_to_message_id: Dict[str, str] = {}
 
@@ -564,7 +565,7 @@ async def get_stream_lock(session_id: str) -> asyncio.Lock:
 
 
 async def push_cron_event(session_id: str, event_data: dict):
-    """推送 Cron 事件到 AI 处理，并直接消费响应推送到 cron SSE 队列"""
+    """推送 Cron 事件到 AI 处理，响应通过 Chat SSE 路径消费，无需阻塞"""
     print(f"[push_cron_event] session_id={session_id}, sending to AI")
 
     if _websocket_api is None:
@@ -599,46 +600,34 @@ async def push_cron_event(session_id: str, event_data: dict):
     )
 
     _event_id_to_message_id[event.event_id] = message_id
-    print(f"[push_cron_event] event_id={event.event_id} -> message_id={message_id}")
 
+    # Set pending cron info BEFORE pushing to engine, so chat SSE path
+    # picks it up when it sees the first response event
+    _pending_cron_info[session_id] = {
+        "cron_id": cron_id,
+        "task_id": task_id,
+        "task_name": task_name,
+        "trigger_time": trigger_time,
+    }
+
+    # Push to engine — chat SSE path consumes the response events
+    await _websocket_api.push_event(session_id, event)
+
+    # Send lightweight notification to cron SSE (no response events)
     if session_id not in _cron_sse_queues:
         _cron_sse_queues[session_id] = asyncio.Queue()
-    cron_queue = _cron_sse_queues[session_id]
-
-    print(f"[push_cron_event] Calling push_event for session {session_id}")
-    await _websocket_api.push_event(session_id, event)
-    print(f"[push_cron_event] push_event completed, consuming stream_events...")
-
-    lock = await get_stream_lock(session_id)
-    async with lock:
-        collected_events = []
-        async for stream_event in _websocket_api.stream_events(session_id):
-            print(
-                f"[push_cron_event] stream_event: type={stream_event.type}, event_id={stream_event.event_id}"
-            )
-            collected_events.append(stream_event)
-            if stream_event.type in ("stream.end", "stream.error"):
-                break
-
-    print(
-        f"[push_cron_event] Collected {len(collected_events)} events, pushing to cron_queue"
-    )
-
-    await cron_queue.put(
+    await _cron_sse_queues[session_id].put(
         {
             "message_id": message_id,
             "cron_id": cron_id,
             "task_id": task_id,
             "task_name": task_name,
             "trigger_time": trigger_time,
-            "events": collected_events,
+            "events": [],
         }
     )
 
     _unread_counts[session_id] = _unread_counts.get(session_id, 0) + 1
-    print(
-        f"[push_cron_event] Done, unread_counts[{session_id}] = {_unread_counts[session_id]}"
-    )
 
 
 def set_websocket_api(api):
@@ -735,6 +724,7 @@ async def chat_send_and_stream(session_id: str, request: ChatRequest):
     _event_id_to_message_id[message_id] = message_id
 
     await _websocket_api.push_event(session_id, user_event)
+    update_session_activity(session_id)
 
     return {"status": "ok", "message_id": message_id}
 
@@ -815,9 +805,20 @@ async def chat_stream_subscribe(session_id: str):
                             event.type in ("stream.chunk", "stream.thinking")
                             and not message_started
                         ):
+                            start_data = {
+                                'role': 'assistant',
+                                'timestamp': time.time(),
+                            }
+                            # Check if this message is from a cron-triggered response
+                            cron_info = _pending_cron_info.pop(session_id, None)
+                            if cron_info:
+                                start_data['isCron'] = True
+                                start_data['taskName'] = cron_info['task_name']
+                                start_data['taskId'] = cron_info['task_id']
+                                start_data['triggerTime'] = cron_info['trigger_time']
                             yield f"id: {current_msg_id}\n"
                             yield f"event: message.start\n"
-                            yield f"data: {json.dumps({'role': 'assistant', 'timestamp': time.time()})}\n\n"
+                            yield f"data: {json.dumps(start_data)}\n\n"
                             _session_stream_state[session_id] = {
                                 "message_id": current_msg_id,
                                 "content": "",
@@ -851,6 +852,8 @@ async def chat_stream_subscribe(session_id: str):
                             _session_stream_state.pop(session_id, None)
                             message_started = False
                             current_msg_id = None  # Reset for next message
+                            if sse_event["event"] == "message.end":
+                                update_session_activity(session_id)
                             break  # Exit loop when stream ends
                     except asyncio.TimeoutError:
                         if heartbeat_count >= max_heartbeats:
@@ -994,9 +997,9 @@ def _transform_event_to_sse(event, target_message_id: str = None) -> Optional[di
                 f"{func_name}({first_arg})" if first_arg else func_name
             )
         tool_info_str = (
-            "[执行工具: " + " | ".join(tool_info_parts) + "]"
+            "[Executing tool: " + " | ".join(tool_info_parts) + "]"
             if tool_info_parts
-            else "[正在执行工具...]"
+            else "[Executing tool...]"
         )
         data = {
             "tool_calls": tool_calls,
@@ -1055,9 +1058,9 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str = None):
                                 f"{func_name}({first_arg})" if first_arg else func_name
                             )
                         tool_info_str = (
-                            "[执行工具: " + " | ".join(tool_info_parts) + "]"
+                            "[Executing tool: " + " | ".join(tool_info_parts) + "]"
                             if tool_info_parts
-                            else "[正在执行工具...]"
+                            else "[Executing tool...]"
                         )
 
                         await websocket.send_json(

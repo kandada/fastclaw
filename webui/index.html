@@ -38,7 +38,7 @@
         .message { margin-bottom: 16px; display: flex; flex-direction: column; }
         .message-user { align-items: flex-end; }
         .message-assistant { align-items: flex-start; }
-        .msg-content { border-radius: 12px; font-size: 14px; line-height: 1.5; word-break: break-word; text-align: left; display: block; overflow-x: hidden; }
+        .msg-content { border-radius: 12px; font-size: 14px; line-height: 1.5; word-break: break-word; text-align: left; display: block; overflow-x: hidden; max-width: 100%; }
         .message-user .msg-content { background: #000; color: #fff; padding: 10px 14px; }
         .tool-badge { font-size: 12px; color: #666; margin-top: 4px; }
         .chat-input-area { padding: 16px 20px; border-top: 1px solid #e0e0e0; }
@@ -59,35 +59,44 @@
         .settings-item { margin-bottom: 12px; display: flex; align-items: center; gap: 12px; }
         .settings-item label { width: 120px; color: #666; }
         .empty-state { text-align: center; padding: 60px; color: #999; }
-        .msg-content h1, .msg-content h2, .msg-content h3 { margin-top: 12px; margin-bottom: 8px; font-weight: 600; }
+        .msg-content h1, .msg-content h2, .msg-content h3, .msg-content h4, .msg-content h5, .msg-content h6 { margin-top: 12px; margin-bottom: 8px; font-weight: 600; }
         .msg-content h1 { font-size: 18px; }
         .msg-content h2 { font-size: 16px; }
         .msg-content h3 { font-size: 14px; }
-        .msg-content p { margin: 8px 0; }
-        .msg-content ul, .msg-content ol { margin: 8px 0; padding-left: 20px; }
+        .msg-content h4 { font-size: 13px; }
+        .msg-content h5, .msg-content h6 { font-size: 12px; color: #666; }
+        .msg-content p { margin: 4px 0; }
+        .msg-content p:empty { display: none; }
+        .msg-content ul, .msg-content ol { margin: 8px 0; padding-left: 24px; }
         .msg-content li { margin: 4px 0; }
         .msg-content strong { font-weight: 600; }
+        .msg-content a { color: #667eea; text-decoration: none; }
+        .msg-content a:hover { text-decoration: underline; }
         .msg-content code { background: #e8e8e8; padding: 2px 6px; border-radius: 3px; font-family: monospace; font-size: 12px; }
         .msg-content pre { background: #e8e8e8; padding: 10px; border-radius: 6px; overflow-x: auto; margin: 8px 0; max-width: 100%; box-sizing: border-box; width: 100%; white-space: pre-wrap; word-break: break-word; }
         .msg-content pre code { background: none; padding: 0; width: 100%; max-width: 100%; box-sizing: border-box; display: block; }
         .msg-content blockquote { border-left: 3px solid #ccc; padding-left: 10px; margin: 8px 0; color: #666; }
-        .msg-content p { margin: 4px 0; }
-        .msg-content p:empty { display: none; }
-        .msg-content .tool-execution { background: #f0f0f0; border-left: 3px solid #666; border-radius: 4px; padding: 8px 12px; margin: 8px 0; font-family: monospace; font-size: 13px; white-space: pre-wrap; word-break: break-word; color: #333; }
-        .thinking-content { color: #999; font-size: 13px; margin-bottom: 8px; white-space: pre-wrap; word-break: break-word; text-align: left; }
+        .msg-content hr { border: none; border-top: 1px solid #e0e0e0; margin: 16px 0; }
+        .msg-content img { max-width: 100%; border-radius: 8px; margin: 8px 0; }
+        .msg-content table { width: 100%; border-collapse: collapse; margin: 8px 0; overflow-x: auto; display: block; }
+        .msg-content th, .msg-content td { border: 1px solid #ddd; padding: 8px 12px; text-align: left; }
+        .msg-content th { background: #f5f5f5; font-weight: 600; }
+        .msg-content tr:nth-child(even) { background: #fafafa; }
+        .msg-content .tool-execution { background: #f0f0f0; border-left: 3px solid #666; border-radius: 4px; padding: 8px 12px; margin: 8px 0; font-family: monospace; font-size: 13px; white-space: pre-wrap; word-break: break-word; color: #333; overflow: hidden; }
+        .thinking-content { color: #999; font-size: 13px; line-height: 1.3; margin: 8px 0; white-space: pre-wrap; word-break: break-word; text-align: left; }
         .streaming-cursor { display: inline-block; color: #666; font-weight: bold; animation: blink 1s infinite; margin-left: 2px; }
         @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
         .tool-content { color: #999; font-size: 13px; margin-bottom: 8px; white-space: pre-wrap; word-break: break-word; text-align: left; }
-        .tool-output-container { background: #f8f8f8; border-left: 3px solid #999; border-radius: 4px; padding: 6px 12px; margin: 4px 0; }
+        .tool-output-container { background: #f8f8f8; border-left: 3px solid #999; border-radius: 4px; padding: 6px 12px; margin: 4px 0; overflow: hidden; }
         .tool-output-header { color: #666; font-size: 12px; font-weight: 500; margin-bottom: 4px; }
-        .tool-output-content { margin: 0; white-space: pre-wrap; word-break: break-word; font-size: 13px; color: #333; }
+        .msg-content .tool-output-content { margin: 0; white-space: pre-wrap; word-break: break-word; font-size: 13px; color: #333; background: transparent; padding: 0; border-radius: 0; overflow-x: auto; max-width: 100%; }
         .message-actions { opacity: 0; transition: opacity 0.2s; margin-top: 4px; display: flex; justify-content: flex-start; }
         .message:hover .message-actions { opacity: 0.5; }
         .message-actions:hover { opacity: 1 !important; }
         .msg-copy-btn { background: none; border: none; cursor: pointer; color: #999; padding: 0; line-height: 1; }
         .msg-copy-btn:hover { color: #666; }
         .msg-copy-btn svg { width: 14px; height: 14px; }
-        .code-block-wrapper { position: relative; display: inline-block; width: 100%; }
+        .code-block-wrapper { position: relative; display: block; }
         .code-copy-btn { position: absolute; top: 4px; right: 4px; background: none; border: none; cursor: pointer; color: #999; padding: 4px; opacity: 0; transition: opacity 0.2s; }
         .code-block-wrapper:hover .code-copy-btn { opacity: 0.6; }
         .code-copy-btn:hover { opacity: 1 !important; }
@@ -176,10 +185,9 @@
                         </el-dialog>
                         <div class="chat-messages" ref="msgContainer">
                             <div v-for="(msg, i) in messages" :key="i" class="message" :class="'message-' + msg.role" :data-msg-id="msg.id">
-                                <div v-if="msg.thinking" class="thinking-content">[思考中...] {{ msg.thinking }}</div>
                                 <div class="msg-content" v-html="getMsgContent(msg)"></div>
                                 <div v-if="msg.role === 'assistant'" class="message-actions">
-                                    <button class="msg-copy-btn" @click="copyMessage(msg.content)" title="复制">
+                                    <button class="msg-copy-btn" @click="copyMessage(msg)" title="Copy">
                                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
                                     </button>
                                 </div>
@@ -192,14 +200,14 @@
                         </div>
                         <div class="chat-input-area">
                             <div class="input-row">
-                                <el-input type="textarea" v-model="chatText" :rows="3" placeholder="Type a message... (Enter to send, Shift+Enter for new line)"
+                                <el-input type="textarea" v-model="chatText" :autosize="{ minRows: 2, maxRows: 6 }" placeholder="Type a message... (Enter to send, Shift+Enter for new line)"
                                           @keydown.enter.exact.prevent="sendMessage"></el-input>
                                 <el-button type="primary" style="background:#000;border-color:#000" @click="sendMessage" :disabled="!chatText.trim() || isStreaming">Send</el-button>
                             </div>
                         </div>
                     </template>
                     <div v-else class="empty-state">
-                        <p>选择会话或创建新会话开始聊天</p>
+                        <p>Select a session or create a new one to start chatting</p>
                     </div>
                 </div>
             </div>
@@ -281,8 +289,8 @@
                 </div>
                 <div style="margin-bottom:32px">
                     <h3 style="font-size:16px;font-weight:600;margin-bottom:16px;padding-bottom:8px;border-bottom:1px solid #e0e0e0">Agents</h3>
-                    <p style="color:#666;font-size:12px;margin-bottom:12px">文件路径: <code>workspace/data/agents/&lt;name&gt;/</code></p>
-                    <p style="color:#666;font-size:12px;margin-bottom:12px">SOUL.md 文件路径: <code>workspace/data/agents/&lt;name&gt;/SOUL.md</code></p>
+                    <p style="color:#666;font-size:12px;margin-bottom:12px">File path: <code>workspace/data/agents/&lt;name&gt;/</code></p>
+                    <p style="color:#666;font-size:12px;margin-bottom:12px">SOUL.md path: <code>workspace/data/agents/&lt;name&gt;/SOUL.md</code></p>
                     <div class="toolbar">
                         <el-button type="primary" style="background:#000;border-color:#000" @click="showAgentDialog()">+ New Agent</el-button>
                         <el-button @click="loadAgents">Refresh</el-button>
@@ -472,8 +480,8 @@
                 navigator.clipboard.writeText(code.textContent).then(() => {
                     const originalHtml = btn.innerHTML;
                     btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>';
-                    btn.title = '已复制';
-                    setTimeout(() => { btn.innerHTML = originalHtml; btn.title = '复制代码'; }, 1500);
+                    btn.title = 'Copied';
+                    setTimeout(() => { btn.innerHTML = originalHtml; btn.title = 'Copy code'; }, 1500);
                 });
             }
         }
@@ -538,21 +546,47 @@
                     return d.toLocaleDateString();
                 }
 
+                function renderMarkdown(text) {
+                    if (!text) return '';
+                    let html = text;
+                    if (typeof marked !== 'undefined') {
+                        html = marked.parse(html);
+                    }
+                    html = html.replace(/<pre><code/g, '<div class="code-block-wrapper"><pre><code');
+                    html = html.replace(/<\/code><\/pre>/g, '</code></pre><button class="code-copy-btn" onclick="copyCodeBlock(this)" title="Copy code"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button></div>');
+                    html = html.replace(/\n{3,}/g, '\n\n');
+                    return html;
+                }
+
                 function getMsgContent(msg) {
-                    if (msg.role === 'assistant' && msg.content) {
-                        let html = msg.content;
-                        // Format tool execution notifications
-                        html = html.replace(/\[执行工具:([^\]]+)\]/g, (match, toolInfo) => {
-                            return `<div class="tool-execution">[执行工具:${toolInfo}]</div>`;
-                        });
-                        if (typeof marked !== 'undefined') {
-                            html = marked.parse(html);
+                    if (msg.role === 'assistant') {
+                        // Render from segments (chronological order)
+                        if (msg.segments && msg.segments.length > 0) {
+                            let html = '';
+                            for (const seg of msg.segments) {
+                                if (seg.type === 'thinking') {
+                                    const text = escapeHtml(seg.text).replace(/\n{3,}/g, '\n\n');
+                                    html += `<div class="thinking-content">[Thinking...] ${text}</div>`;
+                                } else if (seg.type === 'tool') {
+                                    html += `<div class="tool-execution">${escapeHtml(seg.text)}</div>`;
+                                } else if (seg.type === 'text') {
+                                    html += renderMarkdown(seg.text);
+                                }
+                            }
+                            return html;
                         }
-                        html = html.replace(/<pre><code/g, '<div class="code-block-wrapper"><pre><code');
-                        html = html.replace(/<\/code><\/pre>/g, '</code></pre><button class="code-copy-btn" onclick="copyCodeBlock(this)" title="复制代码"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button></div>');
-                        // Clean up excessive newlines
-                        html = html.replace(/\n{3,}/g, '\n\n');
-                        return html;
+                        // Fallback: old format (loaded messages without segments)
+                        let html = msg.content || '';
+                        if (msg.thinking) {
+                            html = `<div class="thinking-content">[Thinking...] ${escapeHtml(msg.thinking)}</div>\n` + html;
+                        }
+                        if (msg.tool_infos && msg.tool_infos.length > 0) {
+                            const toolHtml = msg.tool_infos.map(info =>
+                                `<div class="tool-execution">${escapeHtml(info)}</div>`
+                            ).join('');
+                            html = toolHtml + (html ? '\n' : '') + html;
+                        }
+                        return renderMarkdown(html);
                     }
                     if (msg.role === 'tool') {
                         const content = msg.content || '';
@@ -560,9 +594,13 @@
                         if (match) {
                             const toolName = match[1];
                             const toolResult = match[2];
-                            return `<div class="tool-output-container"><div class="tool-output-header">[${toolName}]:</div><pre class="tool-output-content">${escapeHtml(toolResult)}</pre></div>`;
+                            const displayResult = toolResult || '(no output)';
+                            return `<div class="tool-output-container"><div class="tool-output-header">[${toolName}]:</div><pre class="tool-output-content">${escapeHtml(displayResult)}</pre></div>`;
                         }
                         return `<div class="tool-output-container"><pre class="tool-output-content">${escapeHtml(content)}</pre></div>`;
+                    }
+                    if (msg.role === 'user') {
+                        return escapeHtml(msg.content || '').replace(/\n/g, '<br>');
                     }
                     return msg.content || '';
                 }
@@ -573,10 +611,16 @@
                     return div.innerHTML;
                 }
 
-                function copyMessage(content) {
+                function copyMessage(msg) {
+                    let content = '';
+                    if (msg.segments && msg.segments.length > 0) {
+                        content = msg.segments.map(s => s.text || '').join('');
+                    } else {
+                        content = msg.content || '';
+                    }
                     if (!content) return;
                     navigator.clipboard.writeText(content).then(() => {
-                        ElementPlus.ElMessage.success('已复制');
+                        ElementPlus.ElMessage.success('Copied');
                     });
                 }
 
@@ -643,7 +687,15 @@
                         const loadedMessages = await r.json();
                         messages.value = loadedMessages.map(msg => {
                             if (msg.reasoning_content && !msg.thinking) {
-                                return { ...msg, thinking: msg.reasoning_content };
+                                msg = { ...msg, thinking: msg.reasoning_content };
+                            }
+                            if (msg.role === 'assistant') {
+                                const segments = [];
+                                if (msg.thinking) {
+                                    segments.push({ type: 'thinking', text: msg.thinking });
+                                }
+                                segments.push({ type: 'text', text: msg.content || '' });
+                                msg.segments = segments;
                             }
                             return msg;
                         });
@@ -739,6 +791,7 @@
                                 role: data.role || 'assistant',
                                 content: '',
                                 thinking: '',
+                                segments: [],
                                 _isStreaming: true,
                                 timestamp: data.timestamp || Date.now()
                             };
@@ -746,6 +799,13 @@
                             messageBuffer.set(eventId, msg);
                         }
                         currentStreamingMsg = msg;
+                        // Check if this is a cron-triggered message
+                        if (data.isCron) {
+                            msg.isCron = true;
+                            msg.taskName = data.taskName;
+                            msg.taskId = data.taskId;
+                            msg.triggerTime = data.triggerTime;
+                        }
                         // Add streaming cursor
                         requestAnimationFrame(() => {
                             const msgEl = document.querySelector(`.chat-messages .message[data-msg-id="${eventId}"]`);
@@ -763,7 +823,15 @@
                         const data = JSON.parse(e.data);
                         if (!currentStreamingMsg) return;
                         currentStreamingMsg.content += data.delta || '';
-                        // Update DOM directly for instant display
+                        if (currentStreamingMsg.segments) {
+                            const segs = currentStreamingMsg.segments;
+                            const last = segs[segs.length - 1];
+                            if (last && last.type === 'text') {
+                                last.text += (data.delta || '');
+                            } else {
+                                segs.push({ type: 'text', text: data.delta || '' });
+                            }
+                        }
                         const msgEl = document.querySelector(`.chat-messages .message[data-msg-id="${currentStreamingMsg.id}"] .msg-content`);
                         if (msgEl) {
                             msgEl.innerHTML = getMsgContent(currentStreamingMsg);
@@ -775,12 +843,18 @@
                         const data = JSON.parse(e.data);
                         if (!currentStreamingMsg) return;
                         currentStreamingMsg.thinking = (currentStreamingMsg.thinking || '') + (data.delta || '');
-                        const msgEl = document.querySelector(`.chat-messages .message[data-msg-id="${currentStreamingMsg.id}"]`);
-                        if (msgEl) {
-                            const thinkingEl = msgEl.querySelector('.thinking-content');
-                            if (thinkingEl) {
-                                thinkingEl.textContent = '[思考中...] ' + currentStreamingMsg.thinking;
+                        if (currentStreamingMsg.segments) {
+                            const segs = currentStreamingMsg.segments;
+                            const last = segs[segs.length - 1];
+                            if (last && last.type === 'thinking') {
+                                last.text += (data.delta || '');
+                            } else {
+                                segs.push({ type: 'thinking', text: data.delta || '' });
                             }
+                        }
+                        const msgEl = document.querySelector(`.chat-messages .message[data-msg-id="${currentStreamingMsg.id}"] .msg-content`);
+                        if (msgEl) {
+                            msgEl.innerHTML = getMsgContent(currentStreamingMsg);
                         }
                         scrollBottom();
                     });
@@ -793,9 +867,18 @@
                             messageBuffer.set(e.lastEventId, msg);
                         }
                         if (msg) {
-                            msg.content += (msg.content ? '<br>' : '') + (data.tool_info || '[执行工具...]');
+                            const toolInfo = data.tool_info || '[Executing tool...]';
+                            if (!msg.tool_infos) msg.tool_infos = [];
+                            msg.tool_infos.push(toolInfo);
+                            if (msg.segments) {
+                                msg.segments.push({ type: 'tool', text: toolInfo });
+                            }
                             msg.tool_calls = data.tool_calls || null;
                             msg._isStreaming = false;
+                            const msgEl = document.querySelector(`.chat-messages .message[data-msg-id="${msg.id}"] .msg-content`);
+                            if (msgEl) {
+                                msgEl.innerHTML = getMsgContent(msg);
+                            }
                             nextTick(scrollBottom());
                         }
                     });
@@ -820,6 +903,8 @@
                                 }
                             }
                         }
+                        const s = sessions.value.find(x => x.session_id === currentSessionId.value);
+                        if (s) s.last_active_time = Math.floor(Date.now() / 1000);
                         messageBuffer.delete(e.lastEventId);
                         currentStreamingMsg = null;
                         isStreaming.value = false;
@@ -843,20 +928,8 @@
                     cronEventSource.onerror = () => {};
                     
                     cronEventSource.addEventListener('cron.message', (e) => {
-                        const data = JSON.parse(e.data);
-                        const msg = {
-                            id: e.lastEventId,
-                            role: 'assistant',
-                            content: data.content || '',
-                            thinking: '',
-                            _isStreaming: false,
-                            isCron: true,
-                            taskId: data.task_id,
-                            taskName: data.task_name,
-                            triggerTime: data.trigger_time
-                        };
-                        messages.value.push(msg);
-                        requestAnimationFrame(() => scrollBottom());
+                        // Cron notification — the actual message is delivered via
+                        // chat SSE path with isCron flag in message.start
                     });
                 }
 
@@ -935,6 +1008,8 @@
                         }
                         
                         const result = await response.json();
+                        const s = sessions.value.find(x => x.session_id === sessionId);
+                        if (s) s.last_active_time = Math.floor(Date.now() / 1000);
                         
                     } catch (err) {
                         if (err.name === 'AbortError') {

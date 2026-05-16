@@ -59,8 +59,9 @@ def count_messages_tokens(messages: list) -> int:
 def fix_invalid_tool_calls(messages: list) -> list:
     """修复 messages 历史中不合规的 tool_calls 消息
 
-    如果 assistant 消息有 tool_calls 但没有紧跟对应的 tool 响应，
-    则删除该 assistant 消息的 tool_calls 字段，避免 LLM 调用时出错。
+    如果 assistant 消息有 tool_calls，但后续的 tool 响应未覆盖所有
+    tool_call_id，则删除该 assistant 消息的 tool_calls 字段，
+    避免 LLM 调用时因 tool 响应不完整而报错。
     """
     fixed = []
     i = 0
@@ -68,21 +69,32 @@ def fix_invalid_tool_calls(messages: list) -> list:
         msg = messages[i]
         if msg.get("role") == "assistant" and msg.get("tool_calls"):
             tool_call_ids = {tc["id"] for tc in msg["tool_calls"] if tc.get("id")}
-            if i + 1 < len(messages):
-                next_msg = messages[i + 1]
-                if (
-                    next_msg.get("role") == "tool"
-                    and next_msg.get("tool_call_id") in tool_call_ids
-                ):
-                    fixed.append(msg)
+            if not tool_call_ids:
+                fixed.append(msg)
+                i += 1
+                continue
+            # 收集该 assistant 之后连续的 tool 响应的 tool_call_id
+            j = i + 1
+            responded_ids = set()
+            while j < len(messages) and messages[j].get("role") == "tool":
+                tid = messages[j].get("tool_call_id")
+                if tid:
+                    responded_ids.add(tid)
+                j += 1
+            # 仅当所有 tool_call_id 都有对应的 tool 响应时才保留
+            if tool_call_ids.issubset(responded_ids):
+                fixed.append(msg)
+            else:
+                msg_copy = dict(msg)
+                del msg_copy["tool_calls"]
+                fixed.append(msg_copy)
+                # 跳过该 assistant 后面无主的 tool 响应
+                while i + 1 < len(messages) and messages[i + 1].get("role") == "tool":
                     i += 1
-                    continue
-            msg_copy = dict(msg)
-            del msg_copy["tool_calls"]
-            fixed.append(msg_copy)
+            i += 1
         else:
             fixed.append(msg)
-        i += 1
+            i += 1
     return fixed
 
 
@@ -128,8 +140,18 @@ def unload_early_messages(messages: list, threshold: int) -> tuple[list, list]:
     if count_messages_tokens(messages) < threshold:
         return messages, []
     keep_count = len(messages) // 2
-    kept_messages = messages[-keep_count:]
-    unloaded_messages = messages[:-keep_count]
+    boundary = len(messages) - keep_count
+    # 向前调整切割点：不切在 tool 响应中间
+    while boundary < len(messages) and messages[boundary].get("role") == "tool":
+        boundary += 1
+    # 向后调整切割点：若切割点前一条是 assistant(tc)，其 tool 响应可能不全
+    while boundary > 0 and messages[boundary - 1].get("role") == "assistant" and \
+          messages[boundary - 1].get("tool_calls"):
+        boundary -= 1
+        while boundary > 0 and messages[boundary - 1].get("role") == "tool":
+            boundary -= 1
+    kept_messages = messages[boundary:]
+    unloaded_messages = messages[:boundary]
     return kept_messages, unloaded_messages
 
 
@@ -441,8 +463,8 @@ def extract_paths_from_command(command: str) -> list:
     return paths
 
 
-@app.tool(name="run_shell", description="执行Shell命令并返回输出")
-async def run_shell(command: str, state: dict = None) -> str:
+@app.tool(name="run_shell", description="执行Shell命令并返回输出，可通过max_length控制返回内容长度")
+async def run_shell(command: str, max_length: int = 8000, state: dict = None) -> str:
     confirmed = False
     if command.startswith(CONFIRM_PREFIX):
         command = command[len(CONFIRM_PREFIX) :].strip()
@@ -476,13 +498,30 @@ async def run_shell(command: str, state: dict = None) -> str:
                 process.communicate(), timeout=timeout
             )
             output = (stdout or stderr).decode()
-            return output[:5000]
+            if not output.strip():
+                return "(command completed, no output)"
+            limit = max_length if max_length is not None else 8000
+            if limit != -1 and len(output) > limit:
+                output = output[:limit] + f"\n...(truncated, {len(output)} total chars)"
+            return output
         except asyncio.TimeoutError:
             process.kill()
             await process.wait()
             return f"Error: Command timed out ({timeout}s)"
     except Exception as e:
         return f"Error: {str(e)}"
+
+
+# Improve tool schema parameter descriptions
+_shell_tool = app._tool_registry.get("run_shell")
+if _shell_tool:
+    _schema = _shell_tool.to_openai_schema()
+    _props = _schema.get("function", {}).get("parameters", {}).get("properties", {})
+    if "command" in _props:
+        _props["command"]["description"] = "要执行的Shell命令"
+    if "max_length" in _props:
+        _props["max_length"]["description"] = "输出最大字符数，默认8000；传-1获取全部输出（可选参数）"
+    _shell_tool.schema = _schema
 
 
 @app.tool(name="run_skills", description="执行预定义的技能")
@@ -581,12 +620,28 @@ async def fastclaw_agent(state: dict, event: Event) -> dict:
                         "content": f"[{result['tool_name']}]: {result['result']}",
                     }
                 )
+        else:
+            # Fallback: 向前查找最近的 assistant(tool_calls) 并插入 tool 响应
+            insert_at = None
+            for idx in range(len(state["messages"]) - 1, -1, -1):
+                if state["messages"][idx].get("role") == "assistant" and state["messages"][idx].get("tool_calls"):
+                    insert_at = idx + 1
+                    break
+            if insert_at is not None:
+                for result in state["tool_results"]:
+                    tool_call_id = result.get("tool_call_id") or tool_calls_map.get(
+                        result.get("tool_name", "")
+                    )
+                    state["messages"].insert(insert_at, {
+                        "role": "tool",
+                        "tool_call_id": tool_call_id,
+                        "content": f"[{result['tool_name']}]: {result['result']}",
+                    })
+                    insert_at += 1
         if "tool_results" in state:
             del state["tool_results"]
         if "tool_calls" in state:
             del state["tool_calls"]
-
-        save_messages_to_jsonl(session_id, state["messages"])
 
     user_messages = [
         m

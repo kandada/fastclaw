@@ -121,7 +121,7 @@ async def chat(new_session=False, session_id=None):
                             if name not in seen:
                                 seen.add(name)
                                 unique_names.append(name)
-                        print(f"[执行工具: {', '.join(unique_names)}]")
+                        print(f"[Executing tool: {', '.join(unique_names)}]")
                     content = event.payload.get("content", "")
                     if content:
                         pass
