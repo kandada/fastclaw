@@ -111,6 +111,17 @@ def save_messages_to_jsonl(session_id: str, messages: list) -> None:
                 }
                 f.write(json.dumps(msg_with_ts, ensure_ascii=False) + "\n")
 
+    if messages and messages[0].get("role") == "user":
+        sessions_file = get_sessions_dir() / "sessions.json"
+        try:
+            sessions = json.loads(sessions_file.read_text())
+            if session_id in sessions and not sessions[session_id].get("name"):
+                first_text = messages[0]["content"][:50]
+                sessions[session_id]["name"] = first_text
+                sessions_file.write_text(json.dumps(sessions, indent=2, ensure_ascii=False))
+        except (FileNotFoundError, json.JSONDecodeError, KeyError):
+            pass
+
 
 def load_messages_from_jsonl(session_id: str) -> list:
     messages_file = get_sessions_dir() / session_id / "messages.jsonl"

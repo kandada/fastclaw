@@ -27,7 +27,7 @@
         .session-item { padding: 10px 12px; border-radius: 6px; cursor: pointer; margin-bottom: 4px; display: flex; align-items: center; }
         .session-item:hover, .session-item.active { background: #e8e8e8; }
         .session-item-content { flex: 1; overflow: hidden; }
-        .session-name { font-size: 14px; }
+        .session-name { font-size: 14px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-overflow: ellipsis; }
         .session-time { font-size: 11px; color: #888; }
         .session-menu { opacity: 0; padding: 4px 8px; border-radius: 4px; }
         .session-item:hover .session-menu { opacity: 1; }
@@ -908,6 +908,7 @@
                         messageBuffer.delete(e.lastEventId);
                         currentStreamingMsg = null;
                         isStreaming.value = false;
+                        loadSessions();
                     });
                     
                     chatEventSource.addEventListener('error', (e) => {

@@ -2,11 +2,14 @@
 
 import asyncio
 import json
+import logging
 import threading
 from pathlib import Path
 from typing import Optional
 
 import lark_oapi as lark
+
+logging.getLogger("lark_oapi").setLevel(logging.WARNING)
 from lark_oapi.event.dispatcher_handler import EventDispatcherHandler
 from lark_oapi.api.im.v1 import P2ImMessageReceiveV1
 
