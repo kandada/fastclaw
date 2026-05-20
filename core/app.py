@@ -2,6 +2,7 @@
 """FastClaw 核心引擎"""
 
 import sys
+import logging
 from pathlib import Path
 
 import asyncio
@@ -38,6 +39,8 @@ else:
         get_settings_file,
         get_skills_dir,
     )
+
+logger = logging.getLogger(__name__)
 
 CONTEXT_UNLOAD_THRESHOLD = 80000
 
@@ -266,7 +269,7 @@ def load_skills(skills_dir: str = None) -> dict:
 
 
 async def execute_skill(
-    skill_name: str, params: dict = None, skill_dir: str = None
+    skill_name: str, params: dict = None, skill_dir: str = None, timeout: int = 60
 ) -> str:
     params = params or {}
     if skill_dir is None:
@@ -275,7 +278,8 @@ async def execute_skill(
     if not skill_path.exists():
         return f"Error: Skill '{skill_name}' not found at {skill_dir}"
     settings = load_settings()
-    timeout = settings.get("run_skills_timeout", 30)
+    raw = settings.get("run_skills_timeout", 60)
+    effective_timeout = timeout if isinstance(timeout, (int, float)) and timeout > 0 else (raw if isinstance(raw, (int, float)) and raw > 0 else 60)
     try:
         spec = importlib.util.spec_from_file_location("skill_module", skill_path)
         module = importlib.util.module_from_spec(spec)
@@ -283,10 +287,10 @@ async def execute_skill(
         if hasattr(module, "execute"):
             try:
                 result = await asyncio.wait_for(
-                    module.execute(**params), timeout=timeout
+                    module.execute(**params), timeout=effective_timeout
                 )
             except asyncio.TimeoutError:
-                return f"Error: Skill '{skill_name}' timed out ({timeout}s)"
+                return f"Error: Skill '{skill_name}' timed out ({effective_timeout}s)"
             return str(result)
         else:
             return f"Error: Skill '{skill_name}' has no execute() function"
@@ -305,7 +309,7 @@ SKILLS_LIST = (
 
 SYSTEM_PROMPT_TEMPLATE = SYSTEM_PROMPT.replace("{skills_list}", SKILLS_LIST)
 
-WORKSPACE_PATH = Path("workspace").resolve()
+WORKSPACE_PATH = get_workspace_path()
 CONFIRM_PREFIX = "CONFIRM:"
 
 DENY_PATTERNS = [
@@ -377,12 +381,22 @@ CODE_CORE_PATHS = [
 ]
 
 
+def strip_heredocs(text: str) -> str:
+    """去掉 heredoc 内容，只保留命令结构供安全检测"""
+    return re.sub(
+        r"<<\s*'?(\w+)'?\s*\n.*?\n\1\s*",
+        " ",
+        text,
+        flags=re.DOTALL,
+    )
+
+
 def check_command_permission(
     command: str, extra_workspaces: list = None
 ) -> tuple[str, str]:
     extra_workspaces = extra_workspaces or []
     workspace_str = str(WORKSPACE_PATH.resolve())
-    command_lower = command.lower()
+    command_lower = strip_heredocs(command).lower()
 
     for pattern, desc in DENY_PATTERNS:
         if pattern.search(command_lower):
@@ -463,8 +477,13 @@ def extract_paths_from_command(command: str) -> list:
     return paths
 
 
-@app.tool(name="run_shell", description="Execute a shell command and return output. Use max_length to control output length.")
-async def run_shell(command: str, max_length: int = 8000, state: dict = None) -> str:
+@app.tool(name="run_shell", description="Execute a shell command and return output. Use max_length to control output length, timeout to control execution time.")
+async def run_shell(
+    command: str,
+    max_length: int = 8000,
+    timeout: int = 60,
+    state: dict = None,
+) -> str:
     confirmed = False
     if command.startswith(CONFIRM_PREFIX):
         command = command[len(CONFIRM_PREFIX) :].strip()
@@ -475,18 +494,31 @@ async def run_shell(command: str, max_length: int = 8000, state: dict = None) ->
         extra_workspaces = state["_agent_config"].get("extra_workspaces", [])
 
     permission, reason = check_command_permission(command, extra_workspaces)
+    logger.debug("run_shell permission=%s reason=%s", permission, reason)
 
     if permission == "ask_user" and confirmed:
         permission = "allow"
 
     if permission == "ask_user":
+        if state is not None:
+            if "_ask_user_commands" not in state:
+                state["_ask_user_commands"] = []
+            if command in state["_ask_user_commands"]:
+                return (
+                    f"AskUser: {reason} "
+                    "(You already attempted this command. "
+                    "Do NOT repeat it without the CONFIRM: prefix.)"
+                )
+            state["_ask_user_commands"].append(command)
         return f"AskUser: {reason}"
     elif permission == "deny":
         return f"Permission denied: {reason}"
 
     settings = load_settings()
-    timeout = settings.get("run_shell_timeout", 30)
+    raw = settings.get("run_shell_timeout", 60)
+    effective_timeout = timeout if isinstance(timeout, (int, float)) and timeout > 0 else (raw if isinstance(raw, (int, float)) and raw > 0 else 60)
 
+    logger.debug("run_shell executing cmd_len=%d timeout=%d", len(command), effective_timeout)
     try:
         process = await asyncio.create_subprocess_shell(
             command,
@@ -495,7 +527,7 @@ async def run_shell(command: str, max_length: int = 8000, state: dict = None) ->
         )
         try:
             stdout, stderr = await asyncio.wait_for(
-                process.communicate(), timeout=timeout
+                process.communicate(), timeout=effective_timeout
             )
             output = (stdout or stderr).decode()
             if not output.strip():
@@ -507,7 +539,7 @@ async def run_shell(command: str, max_length: int = 8000, state: dict = None) ->
         except asyncio.TimeoutError:
             process.kill()
             await process.wait()
-            return f"Error: Command timed out ({timeout}s)"
+            return f"Error: Command timed out ({effective_timeout}s)"
     except Exception as e:
         return f"Error: {str(e)}"
 
@@ -521,11 +553,21 @@ if _shell_tool:
         _props["command"]["description"] = "The shell command to execute"
     if "max_length" in _props:
         _props["max_length"]["description"] = "Maximum output characters. Default 8000. Pass -1 for full output (optional)."
+    if "timeout" in _props:
+        _props["timeout"]["description"] = "Command timeout in seconds. Default 60 (optional)."
     _shell_tool.schema = _schema
 
+_skills_tool = app._tool_registry.get("run_skills")
+if _skills_tool:
+    _schema = _skills_tool.to_openai_schema()
+    _props = _schema.get("function", {}).get("parameters", {}).get("properties", {})
+    if "timeout" in _props:
+        _props["timeout"]["description"] = "Skill execution timeout in seconds. Default 60 (optional)."
+    _skills_tool.schema = _schema
 
-@app.tool(name="run_skills", description="Execute a predefined skill")
-async def run_skills(skill_name: str = None, params: dict = None) -> str:
+
+@app.tool(name="run_skills", description="Execute a predefined skill. Use timeout to control execution time.")
+async def run_skills(skill_name: str = None, params: dict = None, timeout: int = 60) -> str:
     params = params or {}
     if skill_name in ("__list__", "list", None, ""):
         if not SKILLS:
@@ -549,7 +591,7 @@ async def run_skills(skill_name: str = None, params: dict = None) -> str:
         return f"Error: Skill '{skill_name}' not found"
     skill_info = SKILLS[skill_name]
     skill_path = skill_info["path"]
-    return await execute_skill(skill_name, params, skill_dir=skill_path)
+    return await execute_skill(skill_name, params, skill_dir=skill_path, timeout=timeout)
 
 
 @app.agent(name="fastclaw_agent", tools=["run_shell", "run_skills"])
@@ -638,6 +680,12 @@ async def fastclaw_agent(state: dict, event: Event) -> dict:
                         "content": f"[{result['tool_name']}]: {result['result']}",
                     })
                     insert_at += 1
+            else:
+                logger.warning(
+                    "tool_results orphaned: no matching assistant(tool_calls) "
+                    "found in messages (session=%s)",
+                    session_id,
+                )
         if "tool_results" in state:
             del state["tool_results"]
         if "tool_calls" in state:
@@ -662,7 +710,7 @@ async def fastclaw_agent(state: dict, event: Event) -> dict:
     state["messages"] = fix_invalid_tool_calls(state["messages"])
 
     llm_config = agent_config.get("llm", {})
-    llm_timeout = llm_config.get("timeout", 300)
+    llm_timeout = llm_config.get("timeout", 120) or 120
 
     client = AsyncOpenAI(
         api_key=llm_config.get("api_key", ""),
@@ -672,7 +720,8 @@ async def fastclaw_agent(state: dict, event: Event) -> dict:
 
     extra_workspaces = agent_config.get("extra_workspaces", [])
     system_prompt = format_system_prompt(
-        SKILLS_LIST, session_id, state.get("_personality", ""), extra_workspaces
+        SKILLS_LIST, session_id, state.get("_personality", ""), extra_workspaces,
+        workspace_path=str(get_workspace_path()),
     )
 
     full_content = ""
@@ -680,6 +729,8 @@ async def fastclaw_agent(state: dict, event: Event) -> dict:
     tool_calls_buffer = []
     has_tool_calls = False
 
+    ctx_size = sum(len(json.dumps(m, ensure_ascii=False)) for m in state["messages"])
+    logger.debug("calling LLM session=%s context_bytes=%d", session_id, ctx_size)
     try:
         stream = await client.chat.completions.create(
             model=llm_config.get("model", "deepseek-chat"),
@@ -793,6 +844,18 @@ async def fastclaw_agent(state: dict, event: Event) -> dict:
             state["messages"].append(assistant_msg)
 
         save_messages_to_jsonl(session_id, state["messages"])
+
+    except asyncio.CancelledError:
+        if full_content:
+            assistant_msg = {"role": "assistant", "content": full_content}
+            if reasoning_content:
+                assistant_msg["reasoning_content"] = reasoning_content
+            state["messages"].append(assistant_msg)
+        try:
+            save_messages_to_jsonl(session_id, state["messages"])
+        except Exception:
+            pass
+        raise
 
     except Exception as e:
         if "tool_calls" in state:

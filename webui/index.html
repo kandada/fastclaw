@@ -202,7 +202,8 @@
                             <div class="input-row">
                                 <el-input type="textarea" v-model="chatText" :autosize="{ minRows: 2, maxRows: 6 }" placeholder="Type a message... (Enter to send, Shift+Enter for new line)"
                                           @keydown.enter.exact.prevent="sendMessage"></el-input>
-                                <el-button type="primary" style="background:#000;border-color:#000" @click="sendMessage" :disabled="!chatText.trim() || isStreaming">Send</el-button>
+                                <el-button v-if="!isStreaming" type="primary" style="background:#000;border-color:#000" @click="sendMessage" :disabled="!chatText.trim()">Send</el-button>
+                                <el-button v-else type="primary" style="background:#000;border-color:#000" @click="stopGeneration">Stop</el-button>
                             </div>
                         </div>
                     </template>
@@ -663,21 +664,16 @@
                         const r = await fetch('/api/sessions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
                         const s = await r.json();
                         sessions.value.unshift(s);
-                        selectSession(s.session_id);
+                        currentSessionId.value = s.session_id;
+                        messages.value = [];
+                        disconnect();
+                        connect(s.session_id);
                     } catch (e) { console.error('createSession error', e); }
                 }
 
                 async function selectSession(id) {
                     if (currentSessionId.value === id) return;
                     disconnect();
-                    // Keep user messages that don't have assistant responses yet
-                    const userMessagesWithoutResponse = messages.value.filter(msg => {
-                        if (msg.role !== 'user') return false;
-                        const msgIndex = messages.value.indexOf(msg);
-                        const nextMsg = messages.value[msgIndex + 1];
-                        return !nextMsg || nextMsg.role !== 'assistant';
-                    });
-                    
                     currentSessionId.value = id;
                     messages.value = [];
                     clearUnreadCount(id);
@@ -700,14 +696,6 @@
                             return msg;
                         });
                     } catch (e) {}
-                    
-                    // Re-add user messages that were pending (no assistant response yet)
-                    userMessagesWithoutResponse.forEach(msg => {
-                        const exists = messages.value.some(m => m.content === msg.content);
-                        if (!exists) {
-                            messages.value.push(msg);
-                        }
-                    });
 
                     try {
                         const stateRes = await fetch(`/api/chat/state/${id}`);
@@ -770,6 +758,12 @@
                     chatEventSource.addEventListener('session_timeout', (e) => {
                         wsConnected.value = false;
                     });
+
+                    chatEventSource.addEventListener('session_stopped', (e) => {
+                        isStreaming.value = false;
+                        chatEventSource.close();
+                        chatEventSource = null;
+                    });
                     
                     chatEventSource.addEventListener('message.start', (e) => {
                         const data = JSON.parse(e.data);
@@ -821,7 +815,15 @@
                     
                     chatEventSource.addEventListener('message.chunk', (e) => {
                         const data = JSON.parse(e.data);
-                        if (!currentStreamingMsg) return;
+                        if (!currentStreamingMsg) {
+                            currentStreamingMsg = {
+                                id: data.message_id || `chunk_${Date.now()}`,
+                                role: 'assistant', content: '', segments: [],
+                                _isStreaming: true, timestamp: Date.now()
+                            };
+                            messages.value.push(currentStreamingMsg);
+                            requestAnimationFrame(scrollBottom);
+                        }
                         currentStreamingMsg.content += data.delta || '';
                         if (currentStreamingMsg.segments) {
                             const segs = currentStreamingMsg.segments;
@@ -942,6 +944,7 @@
                     messageBuffer.clear();
                     currentStreamingMsg = null;
                     messages.value.forEach(m => m._isStreaming = false);
+                    document.querySelectorAll('.chat-messages .streaming-cursor').forEach(c => c.remove());
                 }
 
                 let reconnectTimer = null;
@@ -979,16 +982,13 @@
                 async function sendMessage() {
                     const text = chatText.value.trim();
                     if (!text || !currentSessionId.value) return;
-                    if (isStreaming.value) {
-                        return;
-                    }
+                    if (isStreaming.value) return;
                     chatText.value = '';
                     messages.value.push({ role: 'user', content: text });
-                    isStreaming.value = true;
-                    
                     const clientMessageId = `client_${Date.now()}_${Math.random().toString(36).slice(2)}`;
                     const sessionId = currentSessionId.value;
-                    
+                    isStreaming.value = true;
+
                     try {
                         const controller = new AbortController();
                         const timeout = setTimeout(() => controller.abort(), 180000);
@@ -1011,6 +1011,11 @@
                         const result = await response.json();
                         const s = sessions.value.find(x => x.session_id === sessionId);
                         if (s) s.last_active_time = Math.floor(Date.now() / 1000);
+
+                        if (!chatEventSource) {
+                            connect(currentSessionId.value);
+                        }
+                        isStreaming.value = true;
                         
                     } catch (err) {
                         if (err.name === 'AbortError') {
@@ -1020,6 +1025,16 @@
                     }
                     
                     await nextTick(scrollBottom);
+                }
+
+                async function stopGeneration() {
+                    if (!currentSessionId.value) return;
+                    disconnect();
+                    try {
+                        await fetch(`/api/chat/stop/${currentSessionId.value}`, { method: 'POST' });
+                    } catch (e) {
+                        console.error('Stop failed:', e);
+                    }
                 }
 
                 async function clearSession() {
@@ -1278,7 +1293,7 @@
                     bindAgentDialogVisible, bindAgentForm,
                     renameDialogVisible, renameForm,
                     agentDialogVisible, editingAgent, agentForm,
-                    formatTime, getMsgContent, loadSessions, loadUnreadCounts, createSession, selectSession, selectLatestSession, sendMessage, clearSession, deleteSession,
+                    formatTime, getMsgContent, loadSessions, loadUnreadCounts, createSession, selectSession, selectLatestSession, sendMessage, stopGeneration, clearSession, deleteSession,
                     loadCronTasks, showCronDialog, saveCron, deleteCron, toggleCron, triggerCron,
                     loadAgents, loadSettings, saveSettings, resetSettings, onTabChange,
                     showBindAgentDialog, bindAgent, showRenameDialog, renameSession, showAgentDialog, saveAgent, deleteAgent,

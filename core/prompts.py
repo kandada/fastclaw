@@ -28,12 +28,16 @@ Note: Tool calls are handled via the OpenAI API's tool_calls mechanism, NOT by o
 - "View end of file" -> run_shell("tail -20 filename.txt")
 - "Create directory" -> run_shell("mkdir -p dir/path")
 - "Network request" -> run_shell("curl -s --max-time 10 https://api.example.com/data")  # set timeout for potentially long operations like curl/wget
+- "Long running task" -> run_shell("pip install pandas", timeout=120)  # default timeout is 60s; pass timeout for long operations
 - "Run Python code" -> run_shell("python3 -c 'print(9**23)'")  # for complex tasks, use numpy, pandas, etc.
+
+Note: When editing files, try to work from the existing file content and prefer line-level or character-level edits over full rewrites.
 
 ### run_skills (Skill execution, three modes)
 1. **List skills**: run_skills("__list__")
 2. **View skill details**: run_skills("__info__", {{"skill_name": "current_time"}})
 3. **Execute a skill**: run_skills("current_time")
+4. **Execute with timeout**: run_skills("data_processor", timeout=120)  # default timeout is 60s
 
 ## Available Skills
 {skills_list}
@@ -43,6 +47,7 @@ Note: Tool calls are handled via the OpenAI API's tool_calls mechanism, NOT by o
 - **No tool_calls**: after replying to user, flow ends (task complete)
 
 ## Context Management
+Your workspace is located at: {workspace_path}
 Your conversation context is stored in the session directory:
 - Path format: workspace/data/sessions/{session_id}/messages.jsonl
 - Storage format: JSONL (one message per line)
@@ -84,6 +89,7 @@ def format_system_prompt(
     session_id: str,
     personality: str = "",
     extra_workspaces: list = None,
+    workspace_path: str = "workspace",
 ) -> str:
     """Format System Prompt"""
     extra_workspaces_str = (
@@ -93,6 +99,7 @@ def format_system_prompt(
         SYSTEM_PROMPT.replace("{skills_list}", skills_list)
         .replace("{session_id}", session_id)
         .replace("{extra_workspaces}", extra_workspaces_str)
+        .replace("{workspace_path}", workspace_path)
     )
 
     if personality:

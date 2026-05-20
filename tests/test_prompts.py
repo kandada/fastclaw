@@ -109,6 +109,27 @@ class TestFormatSystemPrompt:
         assert "SOUL" in prompt
         assert personality in prompt
 
+    def test_format_with_workspace_path(self):
+        """格式化带 workspace_path"""
+        skills_list = "- test"
+        session_id = "test"
+        ws_path = "/custom/path/to/workspace"
+
+        prompt = format_system_prompt(skills_list, session_id, workspace_path=ws_path)
+
+        assert ws_path in prompt
+        assert "{workspace_path}" not in prompt
+
+    def test_format_default_workspace_path(self):
+        """默认 workspace_path 为 workspace"""
+        skills_list = "- test"
+        session_id = "test"
+
+        prompt = format_system_prompt(skills_list, session_id)
+
+        assert "workspace" in prompt
+        assert "{workspace_path}" not in prompt
+
 
 class TestPromptPlaceholders:
     """Prompt 占位符测试"""
@@ -121,9 +142,14 @@ class TestPromptPlaceholders:
         """session_id 占位符"""
         assert "{session_id}" in SYSTEM_PROMPT
 
+    def test_workspace_path_placeholder(self):
+        """workspace_path 占位符"""
+        assert "{workspace_path}" in SYSTEM_PROMPT
+
     def test_multiple_placeholders(self):
         """多个占位符"""
-        assert SYSTEM_PROMPT.count("{") >= 2
+        assert SYSTEM_PROMPT.count("{") >= 3
+
 
 
 class TestPromptContent:

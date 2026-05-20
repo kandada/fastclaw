@@ -729,6 +729,26 @@ async def chat_send_and_stream(session_id: str, request: ChatRequest):
     return {"status": "ok", "message_id": message_id}
 
 
+@router.post("/api/chat/stop/{session_id}")
+async def chat_stop(session_id: str):
+    """停止当前会话的 AI 响应"""
+    if _websocket_api is None:
+        raise HTTPException(status_code=500, detail="API not initialized")
+
+    session = _websocket_api.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    try:
+        await session.stop()
+    except RuntimeError:
+        session._state = session.STATE_STOPPED
+        if session._task:
+            session._task.cancel()
+    _session_stream_state.pop(session_id, None)
+    return {"status": "stopped", "session_id": session_id}
+
+
 @router.get("/api/chat/state/{session_id}")
 async def chat_stream_state(session_id: str):
     """获取当前会话的流式输出状态，用于前端切换回会话时恢复显示"""
@@ -775,6 +795,11 @@ async def chat_stream_subscribe(session_id: str):
                     yield f"data: {json.dumps({'message': 'Session timeout'})}\n\n"
                     return
 
+            if not session.is_alive:
+                yield f"event: session_stopped\n"
+                yield f"data: {{}}\n\n"
+                return
+
             try:
                 iterator = _websocket_api.stream_events(session_id).__aiter__()
                 heartbeat_count = 0
@@ -784,7 +809,7 @@ async def chat_stream_subscribe(session_id: str):
                 while True:
                     try:
                         event = await asyncio.wait_for(
-                            iterator.__anext__(), timeout=120
+                            iterator.__anext__(), timeout=30
                         )
                         heartbeat_count = 0
                         if event.type == "cron.message":
@@ -869,6 +894,7 @@ async def chat_stream_subscribe(session_id: str):
             except Exception as e:
                 yield f"event: error\n"
                 yield f"data: {json.dumps({'error': str(e)})}\n\n"
+                return
 
         except asyncio.CancelledError:
             pass
