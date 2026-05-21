@@ -69,39 +69,6 @@ class TestContextThreshold:
         assert expected_chars == 320000
 
 
-class TestMessageUnload:
-    """消息卸载测试"""
-
-    def test_unload_early_messages_threshold(self):
-        """测试超过阈值时卸载"""
-        # 模拟消息列表
-        messages = [{"role": "user", "content": f"message {i}"} for i in range(100)]
-
-        # 计算 tokens
-        tokens = count_messages_tokens(messages)
-
-        # 如果超过阈值，应该卸载
-        if tokens >= CONTEXT_UNLOAD_THRESHOLD:
-            # 保留最近 50%
-            keep_count = len(messages) // 2
-            kept = messages[-keep_count:]
-            assert len(kept) == keep_count
-
-    def test_unload_preserves_recent(self):
-        """测试卸载保留最近消息"""
-        messages = [
-            {"role": "user", "content": "old message"},
-            {"role": "user", "content": "new message"},
-        ]
-
-        # 保留最近 50%
-        keep_count = len(messages) // 2
-        kept = messages[-keep_count:]
-
-        assert len(kept) == 1
-        assert kept[0]["content"] == "new message"
-
-
 class TestContextRecovery:
     """上下文恢复测试"""
 

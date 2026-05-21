@@ -43,9 +43,9 @@ class TestMessagesStorage:
                 elif hasattr(core.app, "workspace"):
                     delattr(core.app, "workspace")
 
-        assert len(loaded) == 3
+        assert len(loaded) == len(messages), "load 必须返回全部消息，不做截断"
         for msg in loaded:
-            assert "timestamp" not in msg
+            assert "timestamp" in msg, "timestamp 必须保留，不再被 strip"
             assert "role" in msg
             assert "content" in msg
 

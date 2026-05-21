@@ -108,11 +108,9 @@ def save_messages_to_jsonl(session_id: str, messages: list) -> None:
     with open(messages_file, "w", encoding="utf-8") as f:
         for msg in messages:
             if msg.get("role") in ("user", "assistant", "system", "tool"):
-                msg_with_ts = {
-                    **msg,
-                    "timestamp": datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
-                }
-                f.write(json.dumps(msg_with_ts, ensure_ascii=False) + "\n")
+                if "timestamp" not in msg:
+                    msg["timestamp"] = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+                f.write(json.dumps(msg, ensure_ascii=False) + "\n")
 
     if messages and messages[0].get("role") == "user":
         sessions_file = get_sessions_dir() / "sessions.json"
@@ -135,17 +133,9 @@ def load_messages_from_jsonl(session_id: str) -> list:
         if line.strip():
             try:
                 msg = json.loads(line)
-                msg.pop("timestamp", None)
                 messages.append(msg)
             except:
                 pass
-
-    agent_config = load_agent_config(load_session_agent_id(session_id))
-    context_config = agent_config.get("context", {})
-    threshold = context_config.get("unload_threshold_tokens", CONTEXT_UNLOAD_THRESHOLD)
-
-    if count_messages_tokens(messages) > threshold:
-        messages, _ = unload_early_messages(messages, threshold)
 
     return messages
 
@@ -703,11 +693,11 @@ async def fastclaw_agent(state: dict, event: Event) -> dict:
     context_config = agent_config.get("context", {})
     threshold = context_config.get("unload_threshold_tokens", CONTEXT_UNLOAD_THRESHOLD)
 
+    llm_messages = state["messages"]
     if count_messages_tokens(state["messages"]) >= threshold:
-        state["messages"], _ = unload_early_messages(state["messages"], threshold)
-        state["_context_unloaded"] = True
+        llm_messages, _ = unload_early_messages(state["messages"], threshold)
 
-    state["messages"] = fix_invalid_tool_calls(state["messages"])
+    llm_messages = fix_invalid_tool_calls(llm_messages)
 
     llm_config = agent_config.get("llm", {})
     llm_timeout = llm_config.get("timeout", 120) or 120
@@ -729,14 +719,14 @@ async def fastclaw_agent(state: dict, event: Event) -> dict:
     tool_calls_buffer = []
     has_tool_calls = False
 
-    ctx_size = sum(len(json.dumps(m, ensure_ascii=False)) for m in state["messages"])
+    ctx_size = sum(len(json.dumps(m, ensure_ascii=False)) for m in llm_messages)
     logger.debug("calling LLM session=%s context_bytes=%d", session_id, ctx_size)
     try:
         stream = await client.chat.completions.create(
             model=llm_config.get("model", "deepseek-chat"),
             messages=[
                 {"role": "system", "content": system_prompt},
-                *state["messages"],
+                *llm_messages,
             ],
             tools=app.get_tool_schemas(),
             stream=True,
@@ -855,7 +845,10 @@ async def fastclaw_agent(state: dict, event: Event) -> dict:
             save_messages_to_jsonl(session_id, state["messages"])
         except Exception:
             pass
-        raise
+        output_queue.put_nowait(
+            Event(type="stream.end", payload={}, session_id=session_id)
+        )
+        return state
 
     except Exception as e:
         if "tool_calls" in state:

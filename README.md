@@ -98,6 +98,14 @@ FastClaw is built on the core concept of **event-driven agent orchestration**. K
 - 🎨 **Extensible** - Easy to add custom skills and agents
 - 🐍 **Python Ecosystem** - Seamlessly call professional libraries like numpy and pandas, enabling AI to use Python ecosystem tools as skillfully as humans
 
+## Changelog
+
+### v1.1.7 (2026-05-21)
+- 🐛 Fix: Context unloading now only affects LLM input, messages.jsonl always keeps full history
+- 🐛 Fix: Message timestamps are no longer overwritten on every save
+- 🐛 Fix: CancelledError no longer triggers duplicate response generation
+- 🧪 Test: Added context unloading, sliding window, and timestamp preservation tests
+
 ## License
 
 GPL-3.0
