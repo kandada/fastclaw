@@ -86,6 +86,10 @@
         .thinking-content { color: #999; font-size: 13px; line-height: 1.3; margin: 8px 0; white-space: pre-wrap; word-break: break-word; text-align: left; }
         .streaming-cursor { display: inline-block; color: #666; font-weight: bold; animation: blink 1s infinite; margin-left: 2px; }
         @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+        .sending-dots span { display: inline-block; width: 6px; height: 6px; margin: 0 2px; background: #999; border-radius: 50%; animation: sending-bounce 1.4s infinite; }
+        .sending-dots span:nth-child(2) { animation-delay: 0.2s; }
+        .sending-dots span:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes sending-bounce { 0%, 80%, 100% { transform: scale(0.6); } 40% { transform: scale(1); } }
         .tool-content { color: #999; font-size: 13px; margin-bottom: 8px; white-space: pre-wrap; word-break: break-word; text-align: left; }
         .tool-output-container { background: #f8f8f8; border-left: 3px solid #999; border-radius: 4px; padding: 6px 12px; margin: 4px 0; overflow: hidden; }
         .tool-output-header { color: #666; font-size: 12px; font-weight: 500; margin-bottom: 4px; }
@@ -190,6 +194,11 @@
                                     <button class="msg-copy-btn" @click="copyMessage(msg)" title="Copy">
                                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
                                     </button>
+                                </div>
+                            </div>
+                            <div v-if="isSending" class="message message-assistant">
+                                <div class="msg-content">
+                                    <span class="sending-dots"><span></span><span></span><span></span></span>
                                 </div>
                             </div>
                             <div v-if="isStreaming" class="message message-assistant">
@@ -497,6 +506,7 @@
                 const messages = ref([]);
                 const chatText = ref('');
                 const isStreaming = ref(false);
+                const isSending = ref(false);
                 const wsConnected = ref(null);
                 const searchText = ref('');
                 let chatEventSource = null;
@@ -745,6 +755,7 @@
                         if (isStreaming.value) {
                             isStreaming.value = false;
                         }
+                        isSending.value = false;
                     };
                     
                     chatEventSource.onopen = () => {
@@ -760,14 +771,16 @@
                     });
 
                     chatEventSource.addEventListener('session_stopped', (e) => {
-                        isStreaming.value = false;
-                        chatEventSource.close();
-                        chatEventSource = null;
+                            isStreaming.value = false;
+                            isSending.value = false;
+                            chatEventSource.close();
+                            chatEventSource = null;
                     });
                     
                     chatEventSource.addEventListener('message.start', (e) => {
                         const data = JSON.parse(e.data);
                         const eventId = e.lastEventId;
+                        isSending.value = false;
                         // Skip if already have a streaming message
                         if (currentStreamingMsg && currentStreamingMsg._isStreaming) {
                             return;
@@ -843,7 +856,15 @@
                     
                     chatEventSource.addEventListener('message.thinking', (e) => {
                         const data = JSON.parse(e.data);
-                        if (!currentStreamingMsg) return;
+                        if (!currentStreamingMsg) {
+                            currentStreamingMsg = {
+                                id: data.message_id || `thinking_${Date.now()}`,
+                                role: 'assistant', content: '', segments: [],
+                                thinking: '', _isStreaming: true, timestamp: Date.now()
+                            };
+                            messages.value.push(currentStreamingMsg);
+                            requestAnimationFrame(scrollBottom);
+                        }
                         currentStreamingMsg.thinking = (currentStreamingMsg.thinking || '') + (data.delta || '');
                         if (currentStreamingMsg.segments) {
                             const segs = currentStreamingMsg.segments;
@@ -910,6 +931,7 @@
                         messageBuffer.delete(e.lastEventId);
                         currentStreamingMsg = null;
                         isStreaming.value = false;
+                        isSending.value = false;
                         loadSessions();
                     });
                     
@@ -940,6 +962,7 @@
                     if (chatEventSource) { chatEventSource.close(); chatEventSource = null; }
                     if (cronEventSource) { cronEventSource.close(); cronEventSource = null; }
                     isStreaming.value = false;
+                    isSending.value = false;
                     wsConnected.value = false;
                     messageBuffer.clear();
                     currentStreamingMsg = null;
@@ -988,6 +1011,7 @@
                     const clientMessageId = `client_${Date.now()}_${Math.random().toString(36).slice(2)}`;
                     const sessionId = currentSessionId.value;
                     isStreaming.value = true;
+                    isSending.value = true;
 
                     try {
                         const controller = new AbortController();
@@ -1012,7 +1036,7 @@
                         const s = sessions.value.find(x => x.session_id === sessionId);
                         if (s) s.last_active_time = Math.floor(Date.now() / 1000);
 
-                        if (!chatEventSource) {
+                        if (!chatEventSource || chatEventSource.readyState !== EventSource.OPEN) {
                             connect(currentSessionId.value);
                         }
                         isStreaming.value = true;
@@ -1288,7 +1312,7 @@
 
                 return {
                     activeTab, sessions, currentSessionId, currentSessionName, messages, chatText,
-                    isStreaming, wsConnected, searchText, filteredSessions, unreadCounts,
+                    isStreaming, isSending, wsConnected, searchText, filteredSessions, unreadCounts,
                     cronTasks, cronDialogVisible, editingCron, cronForm, agents, settings,
                     bindAgentDialogVisible, bindAgentForm,
                     renameDialogVisible, renameForm,
