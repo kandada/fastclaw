@@ -100,6 +100,12 @@ FastClaw is built on the core concept of **event-driven agent orchestration**. K
 
 ## Changelog
 
+### v1.1.8 (2026-05-25)
+- ✨ Feature: LLM Gateway selector (OpenAI / Anthropic) in WebUI agent settings
+- ✨ Feature: Auto-bootstrap default agents from GitHub when workspace is empty
+- ✨ Feature: Auto-generate settings.json with defaults when missing
+- 🔧 Improvement: Increased default Unload Threshold from 80k to 156k
+
 ### v1.1.7 (2026-05-21)
 - 🐛 Fix: Context unloading now only affects LLM input, messages.jsonl always keeps full history
 - 🐛 Fix: Message timestamps are no longer overwritten on every save

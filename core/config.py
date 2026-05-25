@@ -4,6 +4,7 @@ FastClaw 配置模块
 统一管理 workspace 路径等配置
 """
 
+import json
 import os
 import shutil
 from pathlib import Path
@@ -84,3 +85,20 @@ def get_skills_dir() -> Path:
 
 def get_settings_file() -> Path:
     return get_workspace_path() / "data" / "settings.json"
+
+
+_DEFAULT_SETTINGS = {
+    "default_agent_id": "main_agent",
+    "run_shell_timeout": 60,
+    "run_skills_timeout": 60,
+}
+
+
+def ensure_settings():
+    settings_file = get_settings_file()
+    if settings_file.exists():
+        return
+    settings_file.parent.mkdir(parents=True, exist_ok=True)
+    settings_file.write_text(
+        json.dumps(_DEFAULT_SETTINGS, indent=2, ensure_ascii=False)
+    )

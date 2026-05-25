@@ -100,6 +100,12 @@ FastClaw 基于**事件驱动的 Agent 编排**核心概念。主要设计原则
 
 ## 更新日志
 
+### v1.1.8 (2026-05-25)
+- ✨ 特性：WebUI 的 Agent 编辑页面新增 LLM Gateway 选择器（OpenAI / Anthropic）
+- ✨ 特性：工作空间为空时自动从 GitHub 拉取默认 Agent 配置
+- ✨ 特性：settings.json 缺失时自动生成默认配置
+- 🔧 优化：默认 Unload Threshold 从 80k 提升至 156k
+
 ### v1.1.7 (2026-05-21)
 - 🐛 修复：上下文卸载仅影响 LLM 输入，messages.jsonl 始终保留完整历史
 - 🐛 修复：消息时间戳不再被每次保存时覆盖

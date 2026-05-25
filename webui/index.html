@@ -329,6 +329,12 @@
                             <el-form-item label="Name"><el-input v-model="agentForm.name" :disabled="!!editingAgent"></el-input></el-form-item>
                             <el-form-item label="Description"><el-input v-model="agentForm.description"></el-input></el-form-item>
                             <el-divider content-position="left">LLM Config</el-divider>
+                            <el-form-item label="Gateway">
+                                <el-select v-model="agentForm.llm.gateway" placeholder="openai" style="width:100%">
+                                    <el-option label="openai" value="openai"></el-option>
+                                    <el-option label="anthropic" value="anthropic"></el-option>
+                                </el-select>
+                            </el-form-item>
                             <el-form-item label="Provider"><el-input v-model="agentForm.llm.provider" placeholder="moonshot"></el-input></el-form-item>
                             <el-form-item label="Model"><el-input v-model="agentForm.llm.model" placeholder="kimi-k2.5"></el-input></el-form-item>
                             <el-form-item label="API Key"><el-input v-model="agentForm.llm.api_key" type="password" show-password placeholder="sk-..."></el-input></el-form-item>

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Manual test: verify GitHub skills sync feature.
+"""Manual test: verify GitHub bootstrap (skills + agents) sync feature.
 
 Usage:
-    python3 fastclaw/tests/test_skills_sync_manually.py
+    python3 fastclaw/tests/test_bootstrap_manually.py
 
 What it does:
     1. Creates a temporary empty workspace
@@ -18,7 +18,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from fastclaw.core.skills_sync import sync_skills_if_missing
+from fastclaw.core.bootstrap import sync_skills_if_missing
 
 
 def main():

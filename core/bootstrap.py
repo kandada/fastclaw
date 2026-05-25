@@ -1,7 +1,7 @@
-"""GitHub Skills sync module
+"""Workspace bootstrap module
 
-On first start, if workspace/skills/ is empty, download bundled skills from GitHub.
-File-level check: never overwrite existing files.
+On first start, if workspace directories are empty, download default data
+(skills, agents) from GitHub. File-level check: never overwrite existing files.
 """
 
 import sys
@@ -33,7 +33,7 @@ def _needs_sync(skills_dir: Path, subdir: str) -> bool:
         return True
 
 
-def _fetch_skills_tree(git_ref: str, timeout: int = 20):
+def _fetch_tree(git_ref: str, prefix: str, timeout: int = 20):
     url = (
         f"https://api.github.com/repos/kandada/fastclaw/git/trees/"
         f"{git_ref}?recursive=1"
@@ -45,11 +45,10 @@ def _fetch_skills_tree(git_ref: str, timeout: int = 20):
             if git_ref == "main":
                 print("  ⚠️  GitHub tree not found (404) for main branch")
                 return None, None
-            return _fetch_skills_tree("main", timeout)
+            return _fetch_tree("main", prefix, timeout)
         resp.raise_for_status()
         data = resp.json()
         tree = data.get("tree", [])
-        prefix = "workspace/skills/"
         items = [
             item
             for item in tree
@@ -57,8 +56,12 @@ def _fetch_skills_tree(git_ref: str, timeout: int = 20):
         ]
         return items, git_ref
     except Exception as e:
-        print(f"  ⚠️  Failed to fetch skills file list: {e}")
+        print(f"  ⚠️  Failed to fetch file list for '{prefix}': {e}")
         return None, None
+
+
+def _fetch_skills_tree(git_ref: str, timeout: int = 20):
+    return _fetch_tree(git_ref, "workspace/skills/", timeout)
 
 
 def _download_file(url: str, local_path: Path, timeout: int = 20) -> bool:
@@ -149,4 +152,87 @@ def sync_skills_if_missing(workspace_path: Path):
     for sub in subdirs_to_sync:
         _sync_subdir(tree_files, effective_ref, sub, skills_dir)
 
+    print()
+
+
+def _needs_agent_sync(agents_dir: Path) -> bool:
+    if not agents_dir.exists():
+        return True
+    try:
+        next(agents_dir.iterdir())
+        return False
+    except StopIteration:
+        return True
+
+
+def _sync_agents(tree_files: list, git_ref: str, agents_dir: Path):
+    prefix = "workspace/data/agents/"
+    agent_items = [item for item in tree_files if item["path"].startswith(prefix)]
+
+    if not agent_items:
+        print("  No default agents found on GitHub, skipped")
+        return
+
+    agent_dirs: dict[str, list] = {}
+    for item in agent_items:
+        rel = item["path"][len(prefix):]
+        parts = rel.split("/", 1)
+        if len(parts) < 2:
+            continue
+        agent_name = parts[0]
+        agent_dirs.setdefault(agent_name, []).append(item)
+
+    total_agents = len(agent_dirs)
+    synced = 0
+
+    print(f"  [{total_agents} agent(s) found]")
+
+    for agent_name, items in sorted(agent_dirs.items()):
+        target_dir = agents_dir / agent_name
+        if target_dir.exists():
+            synced += 1
+            continue
+
+        target_dir.mkdir(parents=True, exist_ok=True)
+        agent_success = 0
+
+        for item in items:
+            rel = item["path"][len(prefix):]
+            local_path = agents_dir / rel
+
+            raw_url = (
+                f"https://raw.githubusercontent.com/kandada/fastclaw/"
+                f"{git_ref}/{item['path']}"
+            )
+            if _download_file(raw_url, local_path):
+                agent_success += 1
+
+        status = "✅" if agent_success == len(items) else "⚠️"
+        print(f"    {status} {agent_name}/ ({agent_success}/{len(items)} files)")
+        synced += 1
+
+    if synced < total_agents:
+        print(f"  ⚠️  Partial sync: {synced}/{total_agents} agents")
+
+
+def sync_agents_if_missing(workspace_path: Path):
+    agents_dir = workspace_path / "data" / "agents"
+
+    if not _needs_agent_sync(agents_dir):
+        return
+
+    print("\n📥 Agents directory is empty, downloading defaults from GitHub...")
+
+    git_ref = _get_git_ref()
+    print(f"   Ref: {git_ref}")
+
+    tree_files, effective_ref = _fetch_tree(git_ref, "workspace/data/agents/")
+    if tree_files is None:
+        print("  ⚠️  Download failed, skipped (normal startup unaffected)\n")
+        return
+
+    if effective_ref != git_ref:
+        print(f"   (using branch: {effective_ref})")
+
+    _sync_agents(tree_files, effective_ref, agents_dir)
     print()

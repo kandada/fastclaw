@@ -210,7 +210,7 @@ def load_agent_config(agent_id: str) -> dict:
         },
         "context": {
             "max_tokens": 80000,
-            "unload_threshold_tokens": 80000,
+            "unload_threshold_tokens": 156000,
         },
         "extra_workspaces": [],
     }
