@@ -100,6 +100,8 @@ FastClaw 基于**事件驱动的 Agent 编排**核心概念。主要设计原则
 
 ## 更新日志
 
+### v1.1.9 (2026-05-31)
+
 ### v1.1.8 (2026-05-25)
 - ✨ 特性：WebUI 的 Agent 编辑页面新增 LLM Gateway 选择器（OpenAI / Anthropic）
 - ✨ 特性：工作空间为空时自动从 GitHub 拉取默认 Agent 配置

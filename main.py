@@ -36,12 +36,14 @@ if __package__ in (None, ""):
     from core.app import start
     from gateway.server import GatewayServer
     from cli import chat as cli_chat
-    from core.skills_sync import sync_skills_if_missing
+    from core.bootstrap import sync_agents_if_missing, sync_skills_if_missing
+    from core.config import ensure_settings
 else:
     from .core.app import start
     from .gateway.server import GatewayServer
     from .cli import chat as cli_chat
-    from .core.skills_sync import sync_skills_if_missing
+    from .core.bootstrap import sync_agents_if_missing, sync_skills_if_missing
+    from .core.config import ensure_settings
 
 PID_FILE = "/tmp/fastclaw.pid"
 _http_opener = None
@@ -93,17 +95,6 @@ def cleanup_pid_file():
         except (ValueError, OSError):
             pass
 
-
-def setup_signal_handlers():
-    """设置信号处理器"""
-
-    def handler(signum, frame):
-        cleanup_pid_file()
-        print("\nShutting down...")
-        sys.exit(0)
-
-    signal.signal(signal.SIGINT, handler)
-    signal.signal(signal.SIGTERM, handler)
 
 
 def status():
@@ -372,13 +363,14 @@ async def main():
                 host = raw_args[i + 1]
 
         check_pid_file()
-        setup_signal_handlers()
 
         ws_path_str = os.environ.get("FASTCLAW_WORKSPACE")
         if ws_path_str:
             ws_path = Path(ws_path_str)
             if ws_path.is_dir():
                 sync_skills_if_missing(ws_path)
+                sync_agents_if_missing(ws_path)
+                ensure_settings()
 
         print("Starting FastClaw...")
 
@@ -391,16 +383,38 @@ async def main():
         print(f"WebSocket available at ws://{host}:{port}/ws (legacy)")
         print(f"Press Ctrl+C to stop")
 
-        server.run()
+        _shutdown_count = 0
+
+        def _handle_shutdown_signal(sig, _frame):
+            nonlocal _shutdown_count
+            _shutdown_count += 1
+
+            srv = server._uvicorn_server
+            if srv is not None:
+                srv.should_exit = True
+                srv.force_exit = True
+            if _shutdown_count >= 2:
+                os._exit(0)
+
+        prev_sigint = signal.signal(signal.SIGINT, _handle_shutdown_signal)
+        prev_sigterm = signal.signal(signal.SIGTERM, _handle_shutdown_signal)
 
         try:
-            while True:
-                await asyncio.sleep(1)
-        except (KeyboardInterrupt, SystemExit):
+            await server.run_async()
+        except (KeyboardInterrupt, SystemExit, asyncio.CancelledError):
+            pass
+
+        try:
             cleanup_pid_file()
             print("\nShutting down...")
-            await server.stop()
+            try:
+                await asyncio.wait_for(server.stop(force=_shutdown_count > 0), timeout=5)
+            except (asyncio.TimeoutError, asyncio.CancelledError, KeyboardInterrupt):
+                print("Shutdown interrupted, forcing exit")
+        finally:
             print("FastClaw stopped")
+            signal.signal(signal.SIGINT, prev_sigint)
+            signal.signal(signal.SIGTERM, prev_sigterm)
 
     elif cmd == "api":
         port = 8765
@@ -414,8 +428,7 @@ async def main():
         api = await start()
         print(f"FastClaw API running at http://{host}:{port}")
         try:
-            while True:
-                await asyncio.sleep(1)
+            await asyncio.Event().wait()
         except KeyboardInterrupt:
             await api.stop()
 

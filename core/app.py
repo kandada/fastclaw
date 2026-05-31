@@ -124,6 +124,12 @@ def save_messages_to_jsonl(session_id: str, messages: list) -> None:
             pass
 
 
+async def _save_messages_async(session_id: str, messages: list) -> None:
+    await asyncio.get_event_loop().run_in_executor(
+        None, save_messages_to_jsonl, session_id, messages
+    )
+
+
 def load_messages_from_jsonl(session_id: str) -> list:
     messages_file = get_sessions_dir() / session_id / "messages.jsonl"
     if not messages_file.exists():
@@ -261,7 +267,7 @@ def load_skills(skills_dir: str = None) -> dict:
 async def execute_skill(
     skill_name: str, params: dict = None, skill_dir: str = None, timeout: int = 60
 ) -> str:
-    params = params or {}
+    params = dict(params) if params else {}
     if skill_dir is None:
         skill_dir = str(get_skills_dir() / skill_name)
     skill_path = Path(skill_dir) / "main.py"
@@ -270,20 +276,50 @@ async def execute_skill(
     settings = load_settings()
     raw = settings.get("run_skills_timeout", 60)
     effective_timeout = timeout if isinstance(timeout, (int, float)) and timeout > 0 else (raw if isinstance(raw, (int, float)) and raw > 0 else 60)
+
+    def _public_async_funcs(mod) -> list:
+        return [
+            name for name, obj in vars(mod).items()
+            if callable(obj) and asyncio.iscoroutinefunction(obj) and not name.startswith("_")
+        ]
+
+    async def _await_and_str(fn, **kw) -> str:
+        try:
+            result = await asyncio.wait_for(
+                fn(**kw), timeout=effective_timeout
+            )
+            return str(result)
+        except asyncio.TimeoutError:
+            return f"Error: Skill '{skill_name}' timed out ({effective_timeout}s)"
+
     try:
         spec = importlib.util.spec_from_file_location("skill_module", skill_path)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
+
         if hasattr(module, "execute"):
-            try:
-                result = await asyncio.wait_for(
-                    module.execute(**params), timeout=effective_timeout
-                )
-            except asyncio.TimeoutError:
-                return f"Error: Skill '{skill_name}' timed out ({effective_timeout}s)"
-            return str(result)
-        else:
-            return f"Error: Skill '{skill_name}' has no execute() function"
+            return await _await_and_str(module.execute, **params)
+
+        if "func" in params:
+            func_name = params.pop("func")
+            if hasattr(module, func_name) and callable(getattr(module, func_name)):
+                fn = getattr(module, func_name)
+                return await _await_and_str(fn, **params)
+            public_funcs = _public_async_funcs(module)
+            return f"Error: Skill '{skill_name}' has no function '{func_name}'. Available: {', '.join(public_funcs)}"
+
+        if hasattr(module, "run"):
+            return await _await_and_str(module.run, **params)
+
+        public_funcs = _public_async_funcs(module)
+        if len(public_funcs) == 1:
+            fn = getattr(module, public_funcs[0])
+            return await _await_and_str(fn, **params)
+
+        if public_funcs:
+            return f"Error: Skill '{skill_name}' has multiple functions, specify 'func' param. Available: {', '.join(public_funcs)}"
+
+        return f"Error: Skill '{skill_name}' has no executable function"
     except Exception as e:
         return f"Error executing skill '{skill_name}': {str(e)}"
 
@@ -584,6 +620,14 @@ async def run_skills(skill_name: str = None, params: dict = None, timeout: int =
     return await execute_skill(skill_name, params, skill_dir=skill_path, timeout=timeout)
 
 
+async def _aiter_with_timeout(aiter, timeout):
+    while True:
+        try:
+            yield await asyncio.wait_for(aiter.__anext__(), timeout=timeout)
+        except StopAsyncIteration:
+            break
+
+
 @app.agent(name="fastclaw_agent", tools=["run_shell", "run_skills"])
 async def fastclaw_agent(state: dict, event: Event) -> dict:
     """FastClaw 主 Agent：流式输出 + 同步收集 tool_calls
@@ -596,18 +640,24 @@ async def fastclaw_agent(state: dict, event: Event) -> dict:
     """
     session_id = state["_session_id"]
     output_queue = state["_output_queue"]
+    settings = load_settings()
 
     if "_agent_config" not in state:
-        settings = load_settings()
+        def _load_session_data(sid, default_id):
+            effective_id = load_session_agent_id(sid) or default_id
+            config = load_agent_config(effective_id)
+            name = config.get("name", effective_id)
+            personality = load_agent_personality(name)
+            messages = load_messages_from_jsonl(sid)
+            return effective_id, config, name, personality, messages
+
         default_agent_id = settings.get("default_agent_id", "main_agent")
-        effective_agent_id = load_session_agent_id(session_id) or default_agent_id
-        agent_config = load_agent_config(effective_agent_id)
+        effective_agent_id, agent_config, agent_name, personality, existing_messages = (
+            await asyncio.to_thread(_load_session_data, session_id, default_agent_id)
+        )
         state["_agent_config"] = agent_config
         state["_bound_agent_id"] = effective_agent_id
-        agent_name = agent_config.get("name", effective_agent_id)
-        personality = load_agent_personality(agent_name)
         state["_personality"] = personality
-        existing_messages = load_messages_from_jsonl(session_id)
         state["messages"] = existing_messages if existing_messages else []
     else:
         current_bound_agent = state.get("_bound_agent_id", "")
@@ -719,6 +769,8 @@ async def fastclaw_agent(state: dict, event: Event) -> dict:
     tool_calls_buffer = []
     has_tool_calls = False
 
+    stream_chunk_timeout = settings.get("stream_chunk_timeout", 60) or 60
+
     ctx_size = sum(len(json.dumps(m, ensure_ascii=False)) for m in llm_messages)
     logger.debug("calling LLM session=%s context_bytes=%d", session_id, ctx_size)
     try:
@@ -732,7 +784,7 @@ async def fastclaw_agent(state: dict, event: Event) -> dict:
             stream=True,
         )
 
-        async for chunk in stream:
+        async for chunk in _aiter_with_timeout(stream, stream_chunk_timeout):
             delta = chunk.choices[0].delta
 
             if hasattr(delta, "reasoning_content") and delta.reasoning_content:
@@ -833,7 +885,7 @@ async def fastclaw_agent(state: dict, event: Event) -> dict:
                 assistant_msg["tool_calls"] = tool_calls_buffer
             state["messages"].append(assistant_msg)
 
-        save_messages_to_jsonl(session_id, state["messages"])
+        await _save_messages_async(session_id, state["messages"])
 
     except asyncio.CancelledError:
         if full_content:
@@ -842,7 +894,7 @@ async def fastclaw_agent(state: dict, event: Event) -> dict:
                 assistant_msg["reasoning_content"] = reasoning_content
             state["messages"].append(assistant_msg)
         try:
-            save_messages_to_jsonl(session_id, state["messages"])
+            await _save_messages_async(session_id, state["messages"])
         except Exception:
             pass
         output_queue.put_nowait(

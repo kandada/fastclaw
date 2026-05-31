@@ -42,7 +42,7 @@ class TestRunShell:
     async def test_long_output(self):
         """长输出截断"""
         result = await run_shell("python -c 'print(\"x\"*10000)'")
-        assert len(result) <= 5000
+        assert len(result) <= 8100
 
 
 class TestRunSkills:

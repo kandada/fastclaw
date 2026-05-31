@@ -35,6 +35,16 @@ def save_sessions(sessions: dict):
     db_file.write_text(json.dumps(sessions, indent=2, ensure_ascii=False))
 
 
+async def _load_sessions_async() -> dict:
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, load_sessions)
+
+
+async def _save_sessions_async(sessions: dict):
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, save_sessions, sessions)
+
+
 def get_last_session(channel: str) -> Optional[str]:
     """获取指定渠道最近使用的 session（根据 last_active_time）"""
     sessions = load_sessions()
@@ -81,7 +91,7 @@ async def handle_channel_command(
     text = text_content.strip()
 
     if text == "/new":
-        sessions = load_sessions()
+        sessions = await _load_sessions_async()
         new_session_id = f"{channel_name}_{str(uuid.uuid4())[:8]}"
         sessions[new_session_id] = {
             "session_id": new_session_id,
@@ -89,7 +99,7 @@ async def handle_channel_command(
             "created_at": str(uuid.uuid4()),
             "last_active_time": int(time.time()),
         }
-        save_sessions(sessions)
+        await _save_sessions_async(sessions)
 
         reply = f"New session created. ID: {new_session_id}"
         print(f"[{channel_name}] /new -> {new_session_id}")
@@ -106,10 +116,10 @@ async def handle_channel_command(
         if messages_file.exists():
             messages_file.unlink()
 
-        sessions = load_sessions()
+        sessions = await _load_sessions_async()
         if session_id in sessions:
             sessions[session_id]["last_active_time"] = int(time.time())
-            save_sessions(sessions)
+            await _save_sessions_async(sessions)
 
         reply = f"Cleared chat history for session {session_id}"
         print(f"[{channel_name}] /clear -> {session_id}")
@@ -120,7 +130,7 @@ async def handle_channel_command(
         parts = text.split(" ", 1)
         if len(parts) == 2:
             target_session_id = parts[1].strip()
-            sessions = load_sessions()
+            sessions = await _load_sessions_async()
 
             if target_session_id in sessions:
                 reply = f"Switched to session: {target_session_id}"
@@ -134,7 +144,7 @@ async def handle_channel_command(
                 return True, sender_id
 
     elif text == "/session_list":
-        sessions = load_sessions()
+        sessions = await _load_sessions_async()
         if sessions:
             lines = ["All sessions:"]
             for sid, info in sessions.items():

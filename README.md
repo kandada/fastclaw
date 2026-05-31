@@ -100,6 +100,8 @@ FastClaw is built on the core concept of **event-driven agent orchestration**. K
 
 ## Changelog
 
+### v1.1.9 (2026-05-31)
+
 ### v1.1.8 (2026-05-25)
 - ✨ Feature: LLM Gateway selector (OpenAI / Anthropic) in WebUI agent settings
 - ✨ Feature: Auto-bootstrap default agents from GitHub when workspace is empty

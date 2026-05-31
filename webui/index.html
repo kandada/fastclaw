@@ -8,7 +8,7 @@
     <link rel="stylesheet" href="/webui/static/css/element-plus.css">
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #fff; color: #000; height: 100vh; overflow: hidden; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", Roboto, sans-serif; background: #fff; color: #000; height: 100vh; overflow: hidden; }
         #app { height: 100vh; display: flex; flex-direction: column; }
         .header { height: 56px; border-bottom: 1px solid #e0e0e0; display: flex; align-items: center; padding: 0 20px; }
         .header-title { font-size: 18px; font-weight: 600; flex-shrink: 0; }
@@ -39,8 +39,11 @@
         .message { margin-bottom: 16px; display: flex; flex-direction: column; }
         .message-user { align-items: flex-end; }
         .message-assistant { align-items: flex-start; }
-        .msg-content { border-radius: 12px; font-size: 14px; line-height: 1.5; word-break: break-word; text-align: left; display: block; overflow-x: hidden; max-width: 100%; }
+        .msg-content { border-radius: 12px; font-size: 14px; line-height: 1.55; word-break: break-word; text-align: left; display: block; overflow-x: hidden; max-width: 100%; }
         .message-user .msg-content { background: #000; color: #fff; padding: 10px 14px; }
+        .message-assistant .msg-content { background: #fafafa; border-left: 3px solid #667eea; border-radius: 8px; padding: 12px 16px; }
+        .message-assistant .msg-content:has(.loading),
+        .message-assistant .msg-content:has(.sending-dots) { background: transparent; border-left: none; border-radius: 0; padding: 0; }
         .tool-badge { font-size: 12px; color: #666; margin-top: 4px; }
         .chat-input-area { padding: 16px 20px; border-top: 1px solid #e0e0e0; }
         .input-row { display: flex; gap: 12px; }
@@ -60,12 +63,12 @@
         .settings-item { margin-bottom: 12px; display: flex; align-items: center; gap: 12px; }
         .settings-item label { width: 120px; color: #666; }
         .empty-state { text-align: center; padding: 60px; color: #999; }
-        .msg-content h1, .msg-content h2, .msg-content h3, .msg-content h4, .msg-content h5, .msg-content h6 { margin-top: 12px; margin-bottom: 8px; font-weight: 600; }
-        .msg-content h1 { font-size: 18px; }
+        .msg-content h1, .msg-content h2, .msg-content h3, .msg-content h4, .msg-content h5, .msg-content h6 { margin-top: 16px; margin-bottom: 10px; font-weight: 600; line-height: 1.4; }
+        .msg-content h1 { font-size: 17px; }
         .msg-content h2 { font-size: 16px; }
-        .msg-content h3 { font-size: 14px; }
-        .msg-content h4 { font-size: 13px; }
-        .msg-content h5, .msg-content h6 { font-size: 12px; color: #666; }
+        .msg-content h3 { font-size: 15px; }
+        .msg-content h4 { font-size: 14px; }
+        .msg-content h5, .msg-content h6 { font-size: 13px; color: #555; }
         .msg-content p { margin: 4px 0; }
         .msg-content p:empty { display: none; }
         .msg-content ul, .msg-content ol { margin: 8px 0; padding-left: 24px; }
@@ -73,7 +76,7 @@
         .msg-content strong { font-weight: 600; }
         .msg-content a { color: #667eea; text-decoration: none; }
         .msg-content a:hover { text-decoration: underline; }
-        .msg-content code { background: #e8e8e8; padding: 2px 6px; border-radius: 3px; font-family: monospace; font-size: 12px; }
+        .msg-content code { background: #e8e8e8; padding: 2px 6px; border-radius: 3px; font-family: "SF Mono", "Fira Code", "Fira Mono", Menlo, Consolas, monospace; font-size: 13px; }
         .msg-content pre { background: #e8e8e8; padding: 10px; border-radius: 6px; overflow-x: auto; margin: 8px 0; max-width: 100%; box-sizing: border-box; width: 100%; white-space: pre-wrap; word-break: break-word; }
         .msg-content pre code { background: none; padding: 0; width: 100%; max-width: 100%; box-sizing: border-box; display: block; }
         .msg-content blockquote { border-left: 3px solid #ccc; padding-left: 10px; margin: 8px 0; color: #666; }
@@ -84,8 +87,14 @@
         .msg-content th { background: #f5f5f5; font-weight: 600; }
         .msg-content tr:nth-child(even) { background: #fafafa; }
         .msg-content .tool-execution { background: #f0f0f0; border-left: 3px solid #666; border-radius: 4px; padding: 8px 12px; margin: 8px 0; font-family: monospace; font-size: 13px; white-space: pre-wrap; word-break: break-word; color: #333; overflow: hidden; }
-        .thinking-content { color: #999; font-size: 13px; line-height: 1.3; margin: 8px 0; white-space: pre-wrap; word-break: break-word; text-align: left; }
-        .streaming-cursor { display: inline-block; color: #666; font-weight: bold; animation: blink 1s infinite; margin-left: 2px; }
+        .thinking-content { color: #777; font-size: 14px; line-height: 1.55; background: #f6f6f6; border-left: 3px solid #ddd; border-radius: 6px; padding: 10px 14px; margin: 8px 0; word-break: break-word; text-align: left; }
+        .thinking-content p { margin: 4px 0; }
+        .thinking-content h1, .thinking-content h2, .thinking-content h3, .thinking-content h4, .thinking-content h5, .thinking-content h6 { color: #666; }
+        .thinking-content code { background: #dedede; }
+        .thinking-content pre { background: #dedede; }
+        .thinking-content pre code { background: none; }
+        .thinking-content blockquote { border-left-color: #ccc; color: #999; }
+        .message.streaming .msg-content::after { content: '|'; color: #666; font-weight: bold; animation: blink 1s infinite; margin-left: 2px; }
         @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
         .sending-dots span { display: inline-block; width: 6px; height: 6px; margin: 0 2px; background: #999; border-radius: 50%; animation: sending-bounce 1.4s infinite; }
         .sending-dots span:nth-child(2) { animation-delay: 0.2s; }
@@ -205,7 +214,7 @@
                                     <span class="sending-dots"><span></span><span></span><span></span></span>
                                 </div>
                             </div>
-                            <div v-if="isStreaming" class="message message-assistant">
+                            <div v-if="isStreaming && !isSending && !hasStreamingMessage" class="message message-assistant">
                                 <div class="msg-content">
                                     <span class="loading"><span></span><span></span><span></span></span>
                                 </div>
@@ -523,6 +532,7 @@
                 let cronEventSource = null;
                 const messageBuffer = new Map();
                 let currentStreamingMsg = null;
+                let _recoverMsgId = null;
 
                 const cronTasks = ref([]);
                 const cronDialogVisible = ref(false);
@@ -556,6 +566,8 @@
                     return s ? (s.name || s.session_id) : '';
                 });
 
+                const hasStreamingMessage = computed(() => messages.value.some(m => m._isStreaming));
+
                 function formatTime(ts) {
                     if (!ts) return '';
                     const d = new Date(ts * 1000);
@@ -569,37 +581,41 @@
 
                 function renderMarkdown(text) {
                     if (!text) return '';
-                    let html = text;
+                    let html = text.replace(/\n{3,}/g, '\n\n');
                     if (typeof marked !== 'undefined') {
                         html = marked.parse(html);
                     }
                     html = html.replace(/<pre><code/g, '<div class="code-block-wrapper"><pre><code');
                     html = html.replace(/<\/code><\/pre>/g, '</code></pre><button class="code-copy-btn" onclick="copyCodeBlock(this)" title="Copy code"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button></div>');
-                    html = html.replace(/\n{3,}/g, '\n\n');
                     return html;
                 }
 
-                function getMsgContent(msg) {
+                function renderPlainText(text) {
+                    if (!text) return '';
+                    return escapeHtml(text).replace(/\n/g, '<br>');
+                }
+
+                function getMsgContent(msg, useMarkdown) {
+                    if (useMarkdown === undefined) useMarkdown = true;
                     if (msg.role === 'assistant') {
-                        // Render from segments (chronological order)
                         if (msg.segments && msg.segments.length > 0) {
                             let html = '';
                             for (const seg of msg.segments) {
                                 if (seg.type === 'thinking') {
-                                    const text = escapeHtml(seg.text).replace(/\n{3,}/g, '\n\n');
+                                    const text = useMarkdown ? renderMarkdown(seg.text) : escapeHtml(seg.text).replace(/\n{3,}/g, '\n\n');
                                     html += `<div class="thinking-content">[Thinking...] ${text}</div>`;
                                 } else if (seg.type === 'tool') {
                                     html += `<div class="tool-execution">${escapeHtml(seg.text)}</div>`;
                                 } else if (seg.type === 'text') {
-                                    html += renderMarkdown(seg.text);
+                                    html += useMarkdown ? renderMarkdown(seg.text) : renderPlainText(seg.text);
                                 }
                             }
                             return html;
                         }
-                        // Fallback: old format (loaded messages without segments)
                         let html = msg.content || '';
                         if (msg.thinking) {
-                            html = `<div class="thinking-content">[Thinking...] ${escapeHtml(msg.thinking)}</div>\n` + html;
+                            const thinkingHtml = useMarkdown ? renderMarkdown(msg.thinking) : escapeHtml(msg.thinking);
+                            html = `<div class="thinking-content">[Thinking...] ${thinkingHtml}</div>\n` + html;
                         }
                         if (msg.tool_infos && msg.tool_infos.length > 0) {
                             const toolHtml = msg.tool_infos.map(info =>
@@ -607,7 +623,7 @@
                             ).join('');
                             html = toolHtml + (html ? '\n' : '') + html;
                         }
-                        return renderMarkdown(html);
+                        return useMarkdown ? renderMarkdown(html) : renderPlainText(html);
                     }
                     if (msg.role === 'tool') {
                         const content = msg.content || '';
@@ -738,6 +754,7 @@
                                 msg._isStreaming = true;
                             }
                             isStreaming.value = true;
+                            _recoverMsgId = state.message_id;
                         }
                     } catch (e) {
                         // Ignore state fetch errors
@@ -746,12 +763,21 @@
                     connect(id);
 
                     await nextTick();
+                    if (_recoverMsgId) {
+                        const recoverEl = document.querySelector(`.chat-messages .message[data-msg-id="${_recoverMsgId}"]`);
+                        if (recoverEl) recoverEl.classList.add('streaming');
+                        _recoverMsgId = null;
+                    }
                     scrollBottom();
                 }
 
                 function scrollBottom() {
-                    const el = document.querySelector('.chat-messages');
-                    if (el) el.scrollTop = el.scrollHeight;
+                    requestAnimationFrame(() => {
+                        requestAnimationFrame(() => {
+                            const el = document.querySelector('.chat-messages');
+                            if (el) el.scrollTop = el.scrollHeight;
+                        });
+                    });
                 }
 
                 function connect(sessionId) {
@@ -766,6 +792,7 @@
                             isStreaming.value = false;
                         }
                         isSending.value = false;
+                        document.querySelectorAll('.chat-messages .message.streaming').forEach(m => m.classList.remove('streaming'));
                     };
                     
                     chatEventSource.onopen = () => {
@@ -783,6 +810,7 @@
                     chatEventSource.addEventListener('session_stopped', (e) => {
                             isStreaming.value = false;
                             isSending.value = false;
+                            document.querySelectorAll('.chat-messages .message.streaming').forEach(m => m.classList.remove('streaming'));
                             chatEventSource.close();
                             chatEventSource = null;
                     });
@@ -823,14 +851,11 @@
                             msg.taskId = data.taskId;
                             msg.triggerTime = data.triggerTime;
                         }
-                        // Add streaming cursor
+                        // Show streaming cursor via CSS class
                         requestAnimationFrame(() => {
                             const msgEl = document.querySelector(`.chat-messages .message[data-msg-id="${eventId}"]`);
-                            if (msgEl && !msgEl.querySelector('.streaming-cursor')) {
-                                const cursor = document.createElement('span');
-                                cursor.className = 'streaming-cursor';
-                                cursor.textContent = '|';
-                                msgEl.appendChild(cursor);
+                            if (msgEl) {
+                                msgEl.classList.add('streaming');
                             }
                             scrollBottom();
                         });
@@ -845,7 +870,7 @@
                                 _isStreaming: true, timestamp: Date.now()
                             };
                             messages.value.push(currentStreamingMsg);
-                            requestAnimationFrame(scrollBottom);
+                            scrollBottom();
                         }
                         currentStreamingMsg.content += data.delta || '';
                         if (currentStreamingMsg.segments) {
@@ -859,7 +884,7 @@
                         }
                         const msgEl = document.querySelector(`.chat-messages .message[data-msg-id="${currentStreamingMsg.id}"] .msg-content`);
                         if (msgEl) {
-                            msgEl.innerHTML = getMsgContent(currentStreamingMsg);
+                            msgEl.innerHTML = getMsgContent(currentStreamingMsg, false);
                         }
                         scrollBottom();
                     });
@@ -873,7 +898,7 @@
                                 thinking: '', _isStreaming: true, timestamp: Date.now()
                             };
                             messages.value.push(currentStreamingMsg);
-                            requestAnimationFrame(scrollBottom);
+                            scrollBottom();
                         }
                         currentStreamingMsg.thinking = (currentStreamingMsg.thinking || '') + (data.delta || '');
                         if (currentStreamingMsg.segments) {
@@ -887,7 +912,7 @@
                         }
                         const msgEl = document.querySelector(`.chat-messages .message[data-msg-id="${currentStreamingMsg.id}"] .msg-content`);
                         if (msgEl) {
-                            msgEl.innerHTML = getMsgContent(currentStreamingMsg);
+                            msgEl.innerHTML = getMsgContent(currentStreamingMsg, false);
                         }
                         scrollBottom();
                     });
@@ -908,11 +933,12 @@
                             }
                             msg.tool_calls = data.tool_calls || null;
                             msg._isStreaming = false;
-                            const msgEl = document.querySelector(`.chat-messages .message[data-msg-id="${msg.id}"] .msg-content`);
+                            const msgEl = document.querySelector(`.chat-messages .message[data-msg-id="${msg.id}"]`);
                             if (msgEl) {
-                                msgEl.innerHTML = getMsgContent(msg);
+                                msgEl.classList.remove('streaming');
+                                msgEl.querySelector('.msg-content').innerHTML = getMsgContent(msg, false);
                             }
-                            nextTick(scrollBottom());
+                            nextTick(() => scrollBottom());
                         }
                     });
                     
@@ -923,11 +949,9 @@
                         }
                         if (msg) {
                             msg._isStreaming = false;
-                            // Remove streaming cursor
                             const msgEl = document.querySelector(`.chat-messages .message[data-msg-id="${msg.id}"]`);
                             if (msgEl) {
-                                const cursor = msgEl.querySelector('.streaming-cursor');
-                                if (cursor) cursor.remove();
+                                msgEl.classList.remove('streaming');
                             }
                             if (msg.isCron) {
                                 const sessionId = currentSessionId.value;
@@ -943,6 +967,14 @@
                         isStreaming.value = false;
                         isSending.value = false;
                         loadSessions();
+                        if (msg) {
+                            nextTick(() => {
+                                const contentEl = document.querySelector(`.chat-messages .message[data-msg-id="${msg.id}"] .msg-content`);
+                                if (contentEl) {
+                                    contentEl.innerHTML = getMsgContent(msg, true);
+                                }
+                            });
+                        }
                     });
                     
                     chatEventSource.addEventListener('error', (e) => {
@@ -972,12 +1004,11 @@
                     if (chatEventSource) { chatEventSource.close(); chatEventSource = null; }
                     if (cronEventSource) { cronEventSource.close(); cronEventSource = null; }
                     isStreaming.value = false;
-                    isSending.value = false;
                     wsConnected.value = false;
                     messageBuffer.clear();
                     currentStreamingMsg = null;
                     messages.value.forEach(m => m._isStreaming = false);
-                    document.querySelectorAll('.chat-messages .streaming-cursor').forEach(c => c.remove());
+                    document.querySelectorAll('.chat-messages .message.streaming').forEach(m => m.classList.remove('streaming'));
                 }
 
                 let reconnectTimer = null;
@@ -1020,10 +1051,14 @@
                     messages.value.push({ role: 'user', content: text });
                     const clientMessageId = `client_${Date.now()}_${Math.random().toString(36).slice(2)}`;
                     const sessionId = currentSessionId.value;
-                    isStreaming.value = true;
                     isSending.value = true;
 
                     try {
+                        if (!chatEventSource || chatEventSource.readyState !== EventSource.OPEN) {
+                            connect(sessionId);
+                        }
+                        isStreaming.value = true;
+
                         const controller = new AbortController();
                         const timeout = setTimeout(() => controller.abort(), 180000);
                         const response = await fetch(`/api/chat/${sessionId}`, {
@@ -1039,23 +1074,20 @@
                         
                         if (!response.ok) {
                             isStreaming.value = false;
+                            isSending.value = false;
                             return;
                         }
                         
                         const result = await response.json();
                         const s = sessions.value.find(x => x.session_id === sessionId);
                         if (s) s.last_active_time = Math.floor(Date.now() / 1000);
-
-                        if (!chatEventSource || chatEventSource.readyState !== EventSource.OPEN) {
-                            connect(currentSessionId.value);
-                        }
-                        isStreaming.value = true;
                         
                     } catch (err) {
                         if (err.name === 'AbortError') {
                             messages.value.push({ role: 'assistant', content: 'Error: Request timeout, please try again.' });
                         }
                         isStreaming.value = false;
+                        isSending.value = false;
                     }
                     
                     await nextTick(scrollBottom);
@@ -1063,6 +1095,7 @@
 
                 async function stopGeneration() {
                     if (!currentSessionId.value) return;
+                    isSending.value = false;
                     disconnect();
                     try {
                         await fetch(`/api/chat/stop/${currentSessionId.value}`, { method: 'POST' });
@@ -1308,7 +1341,7 @@
                     loadSessions();
                     loadAgents();
                     loadUnreadCounts();
-                    setInterval(loadUnreadCounts, 5000);
+                    setInterval(loadUnreadCounts, 30000);
                 });
 
                 function selectLatestSession() {

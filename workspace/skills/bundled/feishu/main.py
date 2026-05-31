@@ -5,7 +5,7 @@ from typing import Optional
 import lark_oapi as lark
 from lark_oapi.api.docx.v1.model.update_block_request import UpdateBlockRequest
 
-from gateway.channels.feishu import FeishuAdapter
+from fastclaw.gateway.channels.feishu import FeishuAdapter
 
 
 def get_adapter() -> FeishuAdapter:

@@ -413,22 +413,22 @@ def set_main_loop(loop):
 
 
 def _on_feishu_message_receive(data: P2ImMessageReceiveV1):
-    """飞书消息回调"""
+    """飞书消息回调（从飞书 SDK WS 线程调用，投递到主事件循环处理）"""
     if _feishu_adapter is None:
         print("[Feishu] Error: adapter not initialized")
         return
 
     async def process():
-        await _feishu_adapter._handle_feishu_message(data)
-
-    try:
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                asyncio.create_task(process())
-            else:
-                loop.run_until_complete(process())
-        except RuntimeError:
-            asyncio.run(process())
-    except Exception as e:
-        print(f"[Feishu] Callback error: {e}")
+            await _feishu_adapter._handle_feishu_message(data)
+        except Exception as e:
+            print(f"[Feishu] Message processing error: {e}")
+
+    if _main_loop and _main_loop.is_running():
+        future = asyncio.run_coroutine_threadsafe(process(), _main_loop)
+        future.add_done_callback(
+            lambda f: print(f"[Feishu] Callback error: {f.exception()}")
+            if f.exception() else None
+        )
+    else:
+        print("[Feishu] Error: main loop not running, cannot process message")

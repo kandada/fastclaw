@@ -83,6 +83,16 @@ def save_sessions(sessions: dict):
     SESSION_DB_FILE.write_text(json.dumps(sessions, indent=2, ensure_ascii=False))
 
 
+async def _load_sessions_async() -> dict:
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, load_sessions)
+
+
+async def _save_sessions_async(sessions: dict):
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, save_sessions, sessions)
+
+
 def _update_session_activity_sync(session_id: str):
     """同步更新 session 的最后活跃时间"""
     sessions = load_sessions()
@@ -405,7 +415,7 @@ async def trigger_cron(task_data: dict):
 @router.post("/api/sessions")
 async def create_session(data: SessionCreate = None):
     """创建 Session"""
-    sessions = load_sessions()
+    sessions = await _load_sessions_async()
 
     import uuid
 
@@ -422,7 +432,7 @@ async def create_session(data: SessionCreate = None):
         "last_active_time": int(time.time()),
     }
 
-    save_sessions(sessions)
+    await _save_sessions_async(sessions)
 
     return sessions[session_id]
 
@@ -430,7 +440,7 @@ async def create_session(data: SessionCreate = None):
 @router.get("/api/sessions")
 async def list_sessions():
     """列出所有 Session"""
-    sessions = load_sessions()
+    sessions = await _load_sessions_async()
     return list(sessions.values())
 
 
@@ -443,7 +453,7 @@ async def get_unread_counts():
 @router.get("/api/sessions/{session_id}")
 async def get_session(session_id: str):
     """获取指定 Session"""
-    sessions = load_sessions()
+    sessions = await _load_sessions_async()
     if session_id not in sessions:
         raise HTTPException(status_code=404, detail="Session not found")
     return sessions[session_id]
@@ -452,7 +462,7 @@ async def get_session(session_id: str):
 @router.patch("/api/sessions/{session_id}")
 async def update_session(session_id: str, data: SessionUpdate):
     """更新 Session"""
-    sessions = load_sessions()
+    sessions = await _load_sessions_async()
     if session_id not in sessions:
         raise HTTPException(status_code=404, detail="Session not found")
 
@@ -461,19 +471,19 @@ async def update_session(session_id: str, data: SessionUpdate):
     if data.name is not None:
         sessions[session_id]["name"] = data.name
 
-    save_sessions(sessions)
+    await _save_sessions_async(sessions)
     return sessions[session_id]
 
 
 @router.delete("/api/sessions/{session_id}")
 async def delete_session(session_id: str):
     """删除 Session"""
-    sessions = load_sessions()
+    sessions = await _load_sessions_async()
     if session_id not in sessions:
         raise HTTPException(status_code=404, detail="Session not found")
 
     del sessions[session_id]
-    save_sessions(sessions)
+    await _save_sessions_async(sessions)
 
     session_dir = get_sessions_dir() / session_id
     if session_dir.exists():
@@ -739,12 +749,7 @@ async def chat_stop(session_id: str):
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    try:
-        await session.stop()
-    except RuntimeError:
-        session._state = session.STATE_STOPPED
-        if session._task:
-            session._task.cancel()
+    await session.stop()
     _session_stream_state.pop(session_id, None)
     return {"status": "stopped", "session_id": session_id}
 
@@ -762,6 +767,29 @@ async def chat_stream_state(session_id: str):
         "role": "assistant",
         "timestamp": 0,
     }
+
+
+async def _stream_session_events(session, poll_interval=15.0):
+    """Stream session events with configurable poll interval.
+
+    Like FastMindAPI.stream_events() but with adjustable idle poll timeout
+    to reduce CPU usage. Yields None when a poll cycle finds no new events,
+    allowing the SSE generator to emit heartbeats without CancelledError overhead.
+    """
+    cursor = session._event_buffer.tail_cursor
+    while session.is_alive:
+        try:
+            events = await session._event_buffer.wait(cursor, timeout=poll_interval)
+            if not events:
+                yield None
+                continue
+            cursor += len(events)
+            for event in events:
+                yield event
+                if event.type in ("stream.end", "error", "interrupt"):
+                    return
+        except asyncio.CancelledError:
+            break
 
 
 @router.get("/api/chat/stream/{session_id}")
@@ -801,94 +829,102 @@ async def chat_stream_subscribe(session_id: str):
                 return
 
             try:
-                iterator = _websocket_api.stream_events(session_id).__aiter__()
-                heartbeat_count = 0
-                max_heartbeats = 40
+                iterator = _stream_session_events(session, poll_interval=15.0).__aiter__()
+                heartbeat_interval_polls = 2
+                heartbeat_counter = 0
+                max_empty_polls = 480 * heartbeat_interval_polls
                 message_started = False
                 current_msg_id = None  # Keep same msg_id for all chunks in a message
                 while True:
                     try:
-                        event = await asyncio.wait_for(
-                            iterator.__anext__(), timeout=30
-                        )
-                        heartbeat_count = 0
-                        if event.type == "cron.message":
-                            continue
+                        event = await iterator.__anext__()
+                    except StopAsyncIteration:
+                        iterator = _stream_session_events(
+                            session, poll_interval=15.0
+                        ).__aiter__()
+                        continue
 
-                        # Only compute msg_id if we don't have one yet
-                        if current_msg_id is None:
-                            current_msg_id = event.payload.get("message_id")
-                            if not current_msg_id:
-                                current_msg_id = (
-                                    f"evt_{event.event_id[:8]}"
-                                    if event.event_id
-                                    else f"unk_{time.time()}"
-                                )
-
-                        # Emit message.start for the first chunk event
-                        if (
-                            event.type in ("stream.chunk", "stream.thinking")
-                            and not message_started
-                        ):
-                            start_data = {
-                                'role': 'assistant',
-                                'timestamp': time.time(),
-                            }
-                            # Check if this message is from a cron-triggered response
-                            cron_info = _pending_cron_info.pop(session_id, None)
-                            if cron_info:
-                                start_data['isCron'] = True
-                                start_data['taskName'] = cron_info['task_name']
-                                start_data['taskId'] = cron_info['task_id']
-                                start_data['triggerTime'] = cron_info['trigger_time']
-                            yield f"id: {current_msg_id}\n"
-                            yield f"event: message.start\n"
-                            yield f"data: {json.dumps(start_data)}\n\n"
-                            _session_stream_state[session_id] = {
-                                "message_id": current_msg_id,
-                                "content": "",
-                                "thinking": "",
-                                "role": "assistant",
-                                "timestamp": time.time(),
-                            }
-                            message_started = True
-
-                        sse_event = _transform_event_to_sse(event, current_msg_id)
-                        if sse_event is None:
-                            continue
-
-                        # Immediately yield SSE event without buffering
-                        yield f"id: {sse_event['id']}\n"
-                        yield f"event: {sse_event['event']}\n"
-                        yield f"data: {json.dumps(sse_event['data'])}\n\n"
-
-                        # Update state for session recovery
-                        if session_id in _session_stream_state:
-                            if sse_event["event"] == "message.chunk":
-                                _session_stream_state[session_id]["content"] += (
-                                    sse_event["data"].get("delta", "")
-                                )
-                            elif sse_event["event"] == "message.thinking":
-                                _session_stream_state[session_id]["thinking"] += (
-                                    sse_event["data"].get("delta", "")
-                                )
-
-                        if sse_event["event"] in ("message.end", "error"):
-                            _session_stream_state.pop(session_id, None)
-                            message_started = False
-                            current_msg_id = None  # Reset for next message
-                            if sse_event["event"] == "message.end":
-                                update_session_activity(session_id)
-                            break  # Exit loop when stream ends
-                    except asyncio.TimeoutError:
-                        if heartbeat_count >= max_heartbeats:
+                    if event is None:
+                        heartbeat_counter += 1
+                        if heartbeat_counter >= max_empty_polls:
                             yield f"event: error\n"
                             yield f"data: {json.dumps({'error': 'Stream timeout'})}\n\n"
                             break
-                        yield f": heartbeat\n\n"
-                        heartbeat_count += 1
-                    except StopAsyncIteration:
-                        break
+                        if heartbeat_counter % heartbeat_interval_polls == 0:
+                            yield f": heartbeat\n\n"
+                        continue
+
+                    heartbeat_counter = 0
+                    if event.type == "cron.message":
+                        continue
+
+                    # Only compute msg_id if we don't have one yet
+                    if current_msg_id is None:
+                        current_msg_id = event.payload.get("message_id")
+                        if not current_msg_id:
+                            current_msg_id = (
+                                f"evt_{event.event_id[:8]}"
+                                if event.event_id
+                                else f"unk_{time.time()}"
+                            )
+
+                    # Emit message.start for the first chunk event
+                    if (
+                        event.type in ("stream.chunk", "stream.thinking")
+                        and not message_started
+                    ):
+                        start_data = {
+                            'role': 'assistant',
+                            'timestamp': time.time(),
+                        }
+                        # Check if this message is from a cron-triggered response
+                        cron_info = _pending_cron_info.pop(session_id, None)
+                        if cron_info:
+                            start_data['isCron'] = True
+                            start_data['taskName'] = cron_info['task_name']
+                            start_data['taskId'] = cron_info['task_id']
+                            start_data['triggerTime'] = cron_info['trigger_time']
+                        yield f"id: {current_msg_id}\n"
+                        yield f"event: message.start\n"
+                        yield f"data: {json.dumps(start_data)}\n\n"
+                        _session_stream_state[session_id] = {
+                            "message_id": current_msg_id,
+                            "content": "",
+                            "thinking": "",
+                            "role": "assistant",
+                            "timestamp": time.time(),
+                        }
+                        message_started = True
+
+                    sse_event = _transform_event_to_sse(event, current_msg_id)
+                    if sse_event is None:
+                        continue
+
+                    # Immediately yield SSE event without buffering
+                    yield f"id: {sse_event['id']}\n"
+                    yield f"event: {sse_event['event']}\n"
+                    yield f"data: {json.dumps(sse_event['data'])}\n\n"
+
+                    # Update state for session recovery
+                    if session_id in _session_stream_state:
+                        if sse_event["event"] == "message.chunk":
+                            _session_stream_state[session_id]["content"] += (
+                                sse_event["data"].get("delta", "")
+                            )
+                        elif sse_event["event"] == "message.thinking":
+                            _session_stream_state[session_id]["thinking"] += (
+                                sse_event["data"].get("delta", "")
+                            )
+
+                    if sse_event["event"] in ("message.end", "error"):
+                        _session_stream_state.pop(session_id, None)
+                        message_started = False
+                        current_msg_id = None  # Reset for next message
+                        heartbeat_counter = 0  # Reset heartbeat for next message
+                        if sse_event["event"] == "message.end":
+                            update_session_activity(session_id)
+                        if sse_event["event"] == "error":
+                            break  # Exit loop on error
             except asyncio.CancelledError:
                 pass
             except Exception as e:

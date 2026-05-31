@@ -5,7 +5,6 @@ FastAPI (端口 8765) serves both API and WebUI
 """
 
 import asyncio
-import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -51,8 +50,7 @@ class GatewayServer:
         self.host = host
         self.port = port
         self.api = None
-        self._server_thread = None
-        self._stop_event = None
+        self._uvicorn_server = None
 
         self.app = FastAPI(title="FastClaw Gateway", lifespan=lifespan)
         self.app.add_middleware(
@@ -114,7 +112,7 @@ class GatewayServer:
             except Exception as e:
                 print(f"Failed to connect Feishu channel: {e}")
 
-    async def stop(self):
+    async def stop(self, force: bool = False):
         """停止 Gateway 服务"""
         global _channels
         for name, channel in _channels.items():
@@ -125,38 +123,26 @@ class GatewayServer:
                 print(f"Error disconnecting {name} channel: {e}")
         _channels.clear()
 
-        if self.api:
+        if self.api and not force:
             await self.api.stop()
-        if self._stop_event:
-            self._stop_event.set()
-        if self._server_thread:
-            self._server_thread.join(timeout=5)
+        if self._uvicorn_server:
+            self._uvicorn_server.should_exit = True
         print("Gateway API stopped")
 
-    def _run_server(self):
-        """在独立线程中运行 uvicorn 服务器"""
+    async def run_async(self):
+        """在当前事件循环中运行 uvicorn 服务器（阻塞直到停止）"""
         config = uvicorn.Config(
             self.app,
             host=self.host,
             port=self.port,
-            log_level="warning",
+            log_level="critical",
             access_log=False,
+            timeout_graceful_shutdown=3,
         )
-        server = uvicorn.Server(config)
-        self._stop_event = asyncio.Event()
+        self._uvicorn_server = uvicorn.Server(config)
+        set_main_loop(asyncio.get_running_loop())
 
-        # 设置主 loop 供飞书回调使用
-        async def run_with_loop():
-            set_main_loop(asyncio.get_running_loop())
-            await server.serve()
-
-        asyncio.run(run_with_loop())
-        self._stop_event.set()
-
-    def run(self):
-        """在新线程中运行 uvicorn 服务器"""
-        self._server_thread = threading.Thread(target=self._run_server, daemon=True)
-        self._server_thread.start()
+        await self._uvicorn_server._serve()
 
 
 async def main():
@@ -169,13 +155,11 @@ async def main():
     print(f"SSE endpoint at http://{server.host}:{server.port}/api/chat/{{session_id}}")
     print(f"WebSocket available at ws://{server.host}:{server.port}/ws (legacy)")
 
-    server.run()
-
     try:
-        while True:
-            await asyncio.sleep(1)
+        await server.run_async()
     except KeyboardInterrupt:
         print("\nShutting down...")
+    finally:
         await server.stop()
 
 
