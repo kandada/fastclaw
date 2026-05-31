@@ -709,7 +709,6 @@
 
                 async function selectSession(id) {
                     if (currentSessionId.value === id) return;
-                    disconnect();
                     currentSessionId.value = id;
                     messages.value = [];
                     clearUnreadCount(id);
@@ -733,6 +732,8 @@
                         });
                     } catch (e) {}
 
+                    connect(id);
+
                     try {
                         const stateRes = await fetch(`/api/chat/state/${id}`);
                         const state = await stateRes.json();
@@ -745,6 +746,7 @@
                                     content: state.content || '',
                                     thinking: state.thinking || '',
                                     _isStreaming: true,
+                                    segments: [],
                                     timestamp: state.timestamp || Date.now()
                                 };
                                 messages.value.push(msg);
@@ -753,14 +755,14 @@
                                 msg.thinking = state.thinking || msg.thinking;
                                 msg._isStreaming = true;
                             }
+                            currentStreamingMsg = msg;
+                            messageBuffer.set(state.message_id, msg);
                             isStreaming.value = true;
                             _recoverMsgId = state.message_id;
                         }
                     } catch (e) {
                         // Ignore state fetch errors
                     }
-
-                    connect(id);
 
                     await nextTick();
                     if (_recoverMsgId) {
