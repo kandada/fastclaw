@@ -24,7 +24,11 @@ def load_sessions() -> dict:
         try:
             return json.loads(db_file.read_text())
         except:
-            pass
+            time.sleep(0.05)
+            try:
+                return json.loads(db_file.read_text())
+            except:
+                pass
     return {}
 
 

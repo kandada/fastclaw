@@ -64,7 +64,11 @@ def load_sessions() -> dict:
     try:
         return json.loads(SESSION_DB_FILE.read_text())
     except:
-        return {}
+        time.sleep(0.05)
+        try:
+            return json.loads(SESSION_DB_FILE.read_text())
+        except:
+            return {}
 
 
 def load_settings() -> dict:
@@ -921,8 +925,6 @@ async def chat_stream_subscribe(session_id: str):
                         message_started = False
                         current_msg_id = None  # Reset for next message
                         heartbeat_counter = 0  # Reset heartbeat for next message
-                        if sse_event["event"] == "message.end":
-                            update_session_activity(session_id)
                         if sse_event["event"] == "error":
                             break  # Exit loop on error
             except asyncio.CancelledError:

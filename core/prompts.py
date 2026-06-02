@@ -22,7 +22,7 @@ Note: Tool calls are handled via the OpenAI API's tool_calls mechanism, NOT by o
 ### run_shell (Shell command execution)
 - "List current directory files" -> run_shell("ls -la")
 - "Read file content" -> run_shell("cat filename.txt", max_length=500)  # default max_length is 8000; for cat/curl etc. set a reasonable value
-- "Search for a function in code" -> run_shell("grep -r 'function_name' .")
+- "Search for a function in code" -> run_shell("rg 'function_name' .")  # rg preferred; fallback: grep -r
 - "Append to file" -> run_shell("echo 'new content' >> filename.txt")
 - "Multiline append" -> run_shell("printf 'line1\\nline2\\n' >> filename.txt")
 - "View end of file" -> run_shell("tail -20 filename.txt")

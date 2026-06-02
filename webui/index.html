@@ -667,9 +667,12 @@
                         let allSessions = await r.json();
                         // 过滤掉渠道会话（cli_, feishu_, telegram_, imessage_ 前缀）
                         const channelPrefixes = ['cli_', 'feishu_', 'telegram_', 'imessage_'];
-                        sessions.value = allSessions.filter(s => {
+                        const filtered = allSessions.filter(s => {
                             return !channelPrefixes.some(prefix => s.session_id.startsWith(prefix));
                         });
+                        if (filtered.length > 0 || sessions.value.length === 0) {
+                            sessions.value = filtered;
+                        }
                         if (!currentSessionId.value) {
                             if (sessions.value.length > 0) {
                                 selectLatestSession();

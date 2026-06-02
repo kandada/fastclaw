@@ -68,6 +68,10 @@ def fix_invalid_tool_calls(messages: list) -> list:
     """
     fixed = []
     i = 0
+
+    while i < len(messages) and messages[i].get("role") == "tool":
+        i += 1
+
     while i < len(messages):
         msg = messages[i]
         if msg.get("role") == "assistant" and msg.get("tool_calls"):
@@ -76,7 +80,6 @@ def fix_invalid_tool_calls(messages: list) -> list:
                 fixed.append(msg)
                 i += 1
                 continue
-            # 收集该 assistant 之后连续的 tool 响应的 tool_call_id
             j = i + 1
             responded_ids = set()
             while j < len(messages) and messages[j].get("role") == "tool":
@@ -84,14 +87,12 @@ def fix_invalid_tool_calls(messages: list) -> list:
                 if tid:
                     responded_ids.add(tid)
                 j += 1
-            # 仅当所有 tool_call_id 都有对应的 tool 响应时才保留
             if tool_call_ids.issubset(responded_ids):
                 fixed.append(msg)
             else:
                 msg_copy = dict(msg)
                 del msg_copy["tool_calls"]
                 fixed.append(msg_copy)
-                # 跳过该 assistant 后面无主的 tool 响应
                 while i + 1 < len(messages) and messages[i + 1].get("role") == "tool":
                     i += 1
             i += 1
