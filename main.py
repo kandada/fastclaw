@@ -7,6 +7,7 @@ import os
 import signal
 import sys
 import urllib.request
+import warnings
 from pathlib import Path
 
 # 设置 sys.path 使 fastclaw.* 导入在直接运行模式下也能工作
@@ -33,12 +34,14 @@ if os.environ.get("FASTCLAW_WORKSPACE") is None:
         os.environ["FASTCLAW_WORKSPACE"] = str(Path.home() / ".fastclaw" / "workspace")
 
 if __package__ in (None, ""):
+    warnings.filterwarnings("ignore", message=".*pkg_resources is deprecated.*")
     from core.app import start
     from gateway.server import GatewayServer
     from cli import chat as cli_chat
     from core.bootstrap import sync_agents_if_missing, sync_skills_if_missing
     from core.config import ensure_settings
 else:
+    warnings.filterwarnings("ignore", message=".*pkg_resources is deprecated.*")
     from .core.app import start
     from .gateway.server import GatewayServer
     from .cli import chat as cli_chat

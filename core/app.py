@@ -567,6 +567,12 @@ async def run_shell(
             process.kill()
             await process.wait()
             return f"Error: Command timed out ({effective_timeout}s)"
+        except asyncio.CancelledError:
+            process.kill()
+            await process.wait()
+            raise
+    except asyncio.CancelledError:
+        raise
     except Exception as e:
         return f"Error: {str(e)}"
 

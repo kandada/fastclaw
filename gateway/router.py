@@ -87,6 +87,17 @@ def save_sessions(sessions: dict):
     SESSION_DB_FILE.write_text(json.dumps(sessions, indent=2, ensure_ascii=False))
 
 
+def _infer_channel(session_id: str) -> str:
+    """根据 session_id 前缀推断所属渠道"""
+    if not session_id:
+        return "unknown"
+    for prefix, channel in [("feishu_", "feishu"), ("telegram_", "telegram"),
+                             ("imessage_", "imessage"), ("cli_", "cli")]:
+        if session_id.startswith(prefix):
+            return channel
+    return "webui"
+
+
 async def _load_sessions_async() -> dict:
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, load_sessions)
@@ -162,6 +173,7 @@ def prepare_cron_task(task_data: dict) -> tuple:
         "agent_id": task_data.get("agent_id", "main_agent"),
         "session_id": task_data.get("session_id"),
         "enabled": task_data.get("enabled", True),
+        "last_triggered": task_data.get("last_triggered"),
     }
 
     return prepared, ""
@@ -371,6 +383,9 @@ async def create_cron(task_data: dict):
                 existing_idx = i
                 break
         if existing_idx is not None:
+            existing = tasks[existing_idx]
+            if "last_triggered" not in prepared or prepared["last_triggered"] is None:
+                prepared["last_triggered"] = existing.get("last_triggered")
             tasks[existing_idx] = prepared
         else:
             tasks.append(prepared)
@@ -434,6 +449,7 @@ async def create_session(data: SessionCreate = None):
         "agent_id": agent_id,
         "created_at": str(Path().stat().st_mtime) if False else str(uuid.uuid4()),
         "last_active_time": int(time.time()),
+        "channel": "webui",
     }
 
     await _save_sessions_async(sessions)
@@ -443,9 +459,15 @@ async def create_session(data: SessionCreate = None):
 
 @router.get("/api/sessions")
 async def list_sessions():
-    """列出所有 Session"""
+    """列出所有 Session，自动补全 channel 字段（兼容旧记录）"""
     sessions = await _load_sessions_async()
-    return list(sessions.values())
+    result = []
+    for s in sessions.values():
+        if "channel" not in s:
+            s = dict(s)
+            s["channel"] = _infer_channel(s.get("session_id", ""))
+        result.append(s)
+    return result
 
 
 @router.get("/api/sessions/unread")
@@ -794,6 +816,7 @@ async def _stream_session_events(session, poll_interval=15.0):
                     return
         except asyncio.CancelledError:
             break
+    return
 
 
 @router.get("/api/chat/stream/{session_id}")
@@ -827,11 +850,6 @@ async def chat_stream_subscribe(session_id: str):
                     yield f"data: {json.dumps({'message': 'Session timeout'})}\n\n"
                     return
 
-            if not session.is_alive:
-                yield f"event: session_stopped\n"
-                yield f"data: {{}}\n\n"
-                return
-
             try:
                 iterator = _stream_session_events(session, poll_interval=15.0).__aiter__()
                 heartbeat_interval_polls = 2
@@ -839,10 +857,17 @@ async def chat_stream_subscribe(session_id: str):
                 max_empty_polls = 480 * heartbeat_interval_polls
                 message_started = False
                 current_msg_id = None  # Keep same msg_id for all chunks in a message
+                _session_restart_polls = 0
                 while True:
                     try:
                         event = await iterator.__anext__()
+                        _session_restart_polls = 0
                     except StopAsyncIteration:
+                        if not session.is_alive:
+                            _session_restart_polls += 1
+                            if _session_restart_polls >= 6:
+                                break
+                            await asyncio.sleep(0.5)
                         iterator = _stream_session_events(
                             session, poll_interval=15.0
                         ).__aiter__()
@@ -933,6 +958,10 @@ async def chat_stream_subscribe(session_id: str):
                 yield f"event: error\n"
                 yield f"data: {json.dumps({'error': str(e)})}\n\n"
                 return
+
+            if not session.is_alive:
+                yield f"event: session_stopped\n"
+                yield f"data: {{}}\n\n"
 
         except asyncio.CancelledError:
             pass

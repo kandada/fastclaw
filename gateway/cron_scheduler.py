@@ -26,6 +26,7 @@ class CronTask:
     agent_id: str
     session_id: str
     enabled: bool
+    last_triggered: Optional[datetime] = None
 
 
 @dataclass
@@ -50,7 +51,7 @@ class CronScheduler:
     - 消息队列确保按顺序发送
     """
 
-    def __init__(self):
+    def __init__(self, max_missed_seconds: int = 300):
         self._tasks: Dict[str, CronTask] = {}
         self._queues: Dict[str, asyncio.Queue] = {}
         self._processing: Dict[str, bool] = {}
@@ -58,6 +59,7 @@ class CronScheduler:
         self._task_file = get_cron_dir() / "tasks.json"
         self._running = False
         self._runner_task: Optional[asyncio.Task] = None
+        self._max_missed_seconds = max_missed_seconds
 
     def set_push_callback(self, callback: Callable[[str, dict], Awaitable[None]]):
         """设置推送回调，用于通过 SSE 推送消息
@@ -77,6 +79,13 @@ class CronScheduler:
             tasks_data = json.loads(self._task_file.read_text())
             self._tasks = {}
             for t in tasks_data:
+                last_triggered = None
+                lt_str = t.get("last_triggered")
+                if lt_str:
+                    try:
+                        last_triggered = datetime.fromisoformat(lt_str)
+                    except (ValueError, TypeError):
+                        pass
                 task = CronTask(
                     id=t.get("id", ""),
                     name=t.get("name", ""),
@@ -85,6 +94,7 @@ class CronScheduler:
                     agent_id=t.get("agent_id", "main_agent"),
                     session_id=t.get("session_id", "default"),
                     enabled=t.get("enabled", True),
+                    last_triggered=last_triggered,
                 )
                 self._tasks[task.id] = task
         except Exception as e:
@@ -105,6 +115,7 @@ class CronScheduler:
                     "agent_id": task.agent_id,
                     "session_id": task.session_id,
                     "enabled": task.enabled,
+                    "last_triggered": task.last_triggered.isoformat() if task.last_triggered else None,
                 }
             )
         self._task_file.write_text(json.dumps(tasks_data, indent=2, ensure_ascii=False))
@@ -195,27 +206,71 @@ class CronScheduler:
 
         self._processing[session_id] = False
 
-    async def _check_and_trigger(self):
-        """检查所有任务是否应该触发"""
-        now = datetime.now()
+    async def _check_and_trigger(self, _now: Optional[datetime] = None):
+        """检查所有任务是否应该触发
+
+        使用 get_next() 从 last_triggered 向前推算，
+        精确匹配每个应触发的时间点，避免遗漏或重复。
+
+        Args:
+            _now: 可选，用于测试时注入当前时间
+        """
+        now = _now or datetime.now()
+        saved = False
 
         for task in self._tasks.values():
             if not task.enabled:
                 continue
 
             try:
-                cron = croniter.croniter(task.schedule, now - timedelta(seconds=60))
-                next_run = cron.get_next(datetime)
-                prev_run = cron.get_prev(datetime)
+                if task.last_triggered is not None:
+                    seed = task.last_triggered
+                else:
+                    seed = now - timedelta(seconds=self._max_missed_seconds + 1)
+                cron = croniter.croniter(task.schedule, seed)
 
-                time_diff = abs((now - prev_run).total_seconds())
+                skipped_count = 0
+                first_skipped = None
+                last_skipped = None
 
-                if time_diff < 70:
-                    print(f"Cron task '{task.name}' triggered at {now}")
+                while True:
+                    next_run = cron.get_next(datetime)
+                    if next_run > now:
+                        break
+
+                    missed_seconds = (now - next_run).total_seconds()
+                    if missed_seconds > self._max_missed_seconds:
+                        if first_skipped is None:
+                            first_skipped = next_run
+                        last_skipped = next_run
+                        skipped_count += 1
+                        task.last_triggered = next_run
+                        saved = True
+                        continue
+
+                    print(f"Cron task '{task.name}' triggered at {now} (scheduled: {next_run})")
                     await self._enqueue_message(task)
+                    task.last_triggered = next_run
+                    saved = True
+
+                if skipped_count > 0:
+                    if skipped_count == 1:
+                        print(
+                            f"Cron task '{task.name}' skipped 1 past run at {first_skipped} "
+                            f"(exceeded {self._max_missed_seconds}s threshold)"
+                        )
+                    else:
+                        print(
+                            f"Cron task '{task.name}' skipped {skipped_count} past runs "
+                            f"from {first_skipped} to {last_skipped} "
+                            f"(exceeded {self._max_missed_seconds}s threshold)"
+                        )
 
             except Exception as e:
                 print(f"Error checking cron task '{task.name}': {e}")
+
+        if saved:
+            self.save_tasks()
 
     async def start(self):
         """启动调度器"""

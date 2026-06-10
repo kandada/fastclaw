@@ -102,6 +102,7 @@ async def handle_channel_command(
             "agent_id": "main_agent",
             "created_at": str(uuid.uuid4()),
             "last_active_time": int(time.time()),
+            "channel": channel_name,
         }
         await _save_sessions_async(sessions)
 
@@ -196,6 +197,17 @@ async def handle_channel_message(
     )
     if is_command:
         return True, session_id
+
+    sessions = await _load_sessions_async()
+    if session_id not in sessions:
+        sessions[session_id] = {
+            "session_id": session_id,
+            "agent_id": "main_agent",
+            "created_at": str(uuid.uuid4()),
+            "last_active_time": int(time.time()),
+            "channel": channel_name,
+        }
+        await _save_sessions_async(sessions)
 
     event = Event(
         type="user.message",

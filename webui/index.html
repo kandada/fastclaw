@@ -144,6 +144,7 @@
                         <div class="session-item-content" @click="selectSession(s.session_id)">
                             <div class="session-name">
                                 <span v-if="unreadCounts[s.session_id] > 0" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#f56c6c;margin-right:6px;"></span>
+                                <span v-if="s.channel && s.channel !== 'webui'" style="display:inline-block;font-size:11px;color:#909399;background:#f0f2f5;border-radius:3px;padding:1px 5px;margin-right:4px;">{{ s.channel }}</span>
                                 {{ s.name || s.session_id }}
                             </div>
                             <div class="session-time">{{ formatTime(s.last_active_time) }}</div>
@@ -276,7 +277,7 @@
                         </el-form-item>
                         <el-form-item label="Session">
                             <el-select v-model="cronForm.session_id" style="width:100%" clearable filterable allow-create default-first-option placeholder="Select or paste session_id">
-                                <el-option v-for="s in sessions" :key="s.session_id" :label="s.name || s.session_id" :value="s.session_id"></el-option>
+                                <el-option v-for="s in sessions" :key="s.session_id" :label="s.channel ? s.channel + ': ' + (s.name || s.session_id) : (s.name || s.session_id)" :value="s.session_id"></el-option>
                             </el-select>
                         </el-form-item>
                         <el-form-item label="Enabled"><el-switch v-model="cronForm.enabled"></el-switch></el-form-item>
@@ -551,12 +552,12 @@
                 const unreadCounts = ref({});
 
                 const filteredSessions = computed(() => {
-                    let result = sessions.value;
+                    let result = sessions.value.filter(s => !s.channel || s.channel === 'webui');
                     if (!searchText.value) {
-                        result = [...sessions.value];
+                        result = [...result];
                     } else {
                         const q = searchText.value.toLowerCase();
-                        result = sessions.value.filter(s => (s.name || s.session_id).toLowerCase().includes(q));
+                        result = result.filter(s => (s.name || s.session_id).toLowerCase().includes(q));
                     }
                     return result.sort((a, b) => (b.last_active_time || 0) - (a.last_active_time || 0));
                 });
@@ -665,10 +666,9 @@
                     try {
                         const r = await fetch('/api/sessions');
                         let allSessions = await r.json();
-                        // 过滤掉渠道会话（cli_, feishu_, telegram_, imessage_ 前缀）
-                        const channelPrefixes = ['cli_', 'feishu_', 'telegram_', 'imessage_'];
+                        // 只过滤掉 CLI 会话（cli_），保留 webui、飞书、Telegram、iMessage 等渠道
                         const filtered = allSessions.filter(s => {
-                            return !channelPrefixes.some(prefix => s.session_id.startsWith(prefix));
+                            return !s.session_id || !s.session_id.startsWith('cli_');
                         });
                         if (filtered.length > 0 || sessions.value.length === 0) {
                             sessions.value = filtered;
@@ -1026,6 +1026,7 @@
                         const maxRetries = 15;
                         function tryConnect() {
                             if (wsConnected.value === true) return;
+                            if (wsConnected.value === null) return;
                             disconnect();
                             connect(currentSessionId.value);
                             retries++;
@@ -1035,6 +1036,8 @@
                             if (wsConnected.value === true) {
                                 clearInterval(reconnectTimer);
                                 reconnectTimer = null;
+                            } else if (wsConnected.value === null) {
+                                return;
                             } else if (retries < maxRetries) {
                                 tryConnect();
                             } else {
@@ -1107,6 +1110,7 @@
                     } catch (e) {
                         console.error('Stop failed:', e);
                     }
+                    connect(currentSessionId.value);
                 }
 
                 async function clearSession() {

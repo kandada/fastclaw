@@ -373,3 +373,453 @@ class TestCronEventGeneration:
         assert event.payload["task_id"] == "task_001"
         assert event.payload["agent_id"] == "main_agent"
         assert event.session_id == "test_session"
+
+
+# ============================================================
+# Scheduler trigger logic tests (测试 _check_and_trigger 核心逻辑)
+# ============================================================
+
+
+def _make_task(task_id="t1", schedule="30 * * * *", enabled=True,
+               last_triggered=None, session_id="default"):
+    """Helper to create a CronTask for testing."""
+    from gateway.cron_scheduler import CronTask, CronScheduler
+    return CronTask(
+        id=task_id,
+        name=f"task_{task_id}",
+        schedule=schedule,
+        description="test",
+        agent_id="main_agent",
+        session_id=session_id,
+        enabled=enabled,
+        last_triggered=last_triggered,
+    )
+
+
+def _make_scheduler(tasks=None, max_missed_seconds=300):
+    """Helper to create a CronScheduler with given tasks."""
+    from gateway.cron_scheduler import CronScheduler
+    sched = CronScheduler(max_missed_seconds=max_missed_seconds)
+    if tasks:
+        for t in tasks:
+            sched._tasks[t.id] = t
+    return sched
+
+
+class TestCheckAndTrigger:
+    """测试 _check_and_trigger 调度核心逻辑"""
+
+    # ------------------------------------------------------------------
+    # Helper: run _check_and_trigger with a fake clock, collect triggered
+    # ------------------------------------------------------------------
+    @staticmethod
+    async def _run_check(scheduler, now_dt):
+        """Run _check_and_trigger at a fake 'now', return set of triggered task_ids."""
+        triggered = set()
+
+        async def fake_enqueue(task):
+            triggered.add(task.id)
+
+        original_enqueue = scheduler._enqueue_message
+        scheduler._enqueue_message = fake_enqueue
+
+        await scheduler._check_and_trigger(_now=now_dt)
+
+        scheduler._enqueue_message = original_enqueue
+        return triggered
+
+    # ------------------------------------------------------------------
+    # Tests
+    # ------------------------------------------------------------------
+    @pytest.mark.asyncio
+    async def test_triggers_when_now_is_after_schedule(self):
+        """now=10:31, schedule='30 * * * *' → 应触发 10:30 这次"""
+        now = datetime.datetime(2024, 1, 1, 10, 31, 0)
+        task = _make_task("t1", schedule="30 * * * *")
+        scheduler = _make_scheduler([task])
+
+        triggered = await self._run_check(scheduler, now)
+        assert "t1" in triggered
+        assert task.last_triggered == datetime.datetime(2024, 1, 1, 10, 30)
+
+    @pytest.mark.asyncio
+    async def test_does_not_trigger_before_schedule(self):
+        """now=10:29, schedule='30 * * * *' → 不应触发，还没到 10:30"""
+        now = datetime.datetime(2024, 1, 1, 10, 29, 0)
+        task = _make_task("t1", schedule="30 * * * *")
+        scheduler = _make_scheduler([task])
+
+        triggered = await self._run_check(scheduler, now)
+        assert "t1" not in triggered
+        assert task.last_triggered is None
+
+    @pytest.mark.asyncio
+    async def test_skips_already_triggered_time(self):
+        """last_triggered=10:30, now=10:31 → 不应重复触发 10:30"""
+        now = datetime.datetime(2024, 1, 1, 10, 31, 0)
+        last = datetime.datetime(2024, 1, 1, 10, 30)
+        task = _make_task("t1", schedule="30 * * * *", last_triggered=last)
+        scheduler = _make_scheduler([task])
+
+        triggered = await self._run_check(scheduler, now)
+        assert "t1" not in triggered
+        assert task.last_triggered == last
+
+    @pytest.mark.asyncio
+    async def test_triggers_next_after_last_triggered(self):
+        """last_triggered=10:30, now=11:31 → 应触发 11:30 (下一小时的)"""
+        now = datetime.datetime(2024, 1, 1, 11, 31, 0)
+        last = datetime.datetime(2024, 1, 1, 10, 30)
+        task = _make_task("t1", schedule="30 * * * *", last_triggered=last)
+        scheduler = _make_scheduler([task])
+
+        triggered = await self._run_check(scheduler, now)
+        assert "t1" in triggered
+        assert task.last_triggered == datetime.datetime(2024, 1, 1, 11, 30)
+
+    @pytest.mark.asyncio
+    async def test_triggers_multiple_missed_within_window(self):
+        """last_triggered=None, now=11:35, schedule='30 * * * *' →
+        应触发 10:30 和 11:30 (missed_seconds=330 和 30，第一个跳过第二个触发)"""
+        now = datetime.datetime(2024, 1, 1, 11, 35, 0)
+        task = _make_task("t1", schedule="30 * * * *")
+        scheduler = _make_scheduler([task], max_missed_seconds=600)
+
+        triggered = await self._run_check(scheduler, now)
+        assert "t1" in triggered
+        assert task.last_triggered == datetime.datetime(2024, 1, 1, 11, 30)
+
+    @pytest.mark.asyncio
+    async def test_skips_far_missed_first_run(self):
+        """last_triggered=None (首次), now 远超 schedule → 不应触发过去的"""
+        now = datetime.datetime(2024, 1, 1, 12, 0, 0)
+        task = _make_task("t1", schedule="30 * * * *")
+        scheduler = _make_scheduler([task], max_missed_seconds=300)
+
+        triggered = await self._run_check(scheduler, now)
+        assert "t1" not in triggered
+        assert task.last_triggered is None
+
+    @pytest.mark.asyncio
+    async def test_disabled_task_not_triggered(self):
+        """禁用的任务不应触发"""
+        now = datetime.datetime(2024, 1, 1, 10, 31, 0)
+        task = _make_task("t1", schedule="30 * * * *", enabled=False)
+        scheduler = _make_scheduler([task])
+
+        triggered = await self._run_check(scheduler, now)
+        assert "t1" not in triggered
+
+    @pytest.mark.asyncio
+    async def test_every_5_minutes(self):
+        """schedule='*/5 * * * *', now=10:36 → 应触发 10:35"""
+        now = datetime.datetime(2024, 1, 1, 10, 36, 0)
+        task = _make_task("t1", schedule="*/5 * * * *")
+        scheduler = _make_scheduler([task])
+
+        triggered = await self._run_check(scheduler, now)
+        assert "t1" in triggered
+        assert task.last_triggered == datetime.datetime(2024, 1, 1, 10, 35)
+
+    @pytest.mark.asyncio
+    async def test_every_5_minutes_not_trigger_before(self):
+        """schedule='*/5 * * * *', now=10:34, max_missed=60 → seed=10:33,
+        get_next=10:35 > 10:34 → 不应触发（10:30 已超出 60s 窗口）"""
+        now = datetime.datetime(2024, 1, 1, 10, 34, 0)
+        task = _make_task("t1", schedule="*/5 * * * *")
+        scheduler = _make_scheduler([task], max_missed_seconds=60)
+
+        triggered = await self._run_check(scheduler, now)
+        assert "t1" not in triggered
+
+    @pytest.mark.asyncio
+    async def test_specific_hour_and_minute(self):
+        """schedule='0 9 * * *', now=9:01 → 应触发 9:00"""
+        now = datetime.datetime(2024, 1, 1, 9, 1, 0)
+        task = _make_task("t1", schedule="0 9 * * *")
+        scheduler = _make_scheduler([task])
+
+        triggered = await self._run_check(scheduler, now)
+        assert "t1" in triggered
+        assert task.last_triggered == datetime.datetime(2024, 1, 1, 9, 0)
+
+    @pytest.mark.asyncio
+    async def test_specific_hour_not_trigger_other_hour(self):
+        """schedule='0 9 * * *', now=10:01 → 10:00 不应触发（cron 只匹配 9:00）"""
+        now = datetime.datetime(2024, 1, 1, 10, 1, 0)
+        task = _make_task("t1", schedule="0 9 * * *")
+        scheduler = _make_scheduler([task])
+
+        triggered = await self._run_check(scheduler, now)
+        assert "t1" not in triggered
+
+    @pytest.mark.asyncio
+    async def test_weekday_only_triggers_on_weekday(self):
+        """schedule='30 9 * * 1-5', 周一 9:31 → 应触发"""
+        import datetime as dt
+        now = dt.datetime(2024, 1, 1, 9, 31, 0)  # 2024-01-01 is Monday
+        assert now.weekday() == 0
+        task = _make_task("t1", schedule="30 9 * * 1-5")
+        scheduler = _make_scheduler([task])
+
+        triggered = await self._run_check(scheduler, now)
+        assert "t1" in triggered
+        assert task.last_triggered == dt.datetime(2024, 1, 1, 9, 30)
+
+    @pytest.mark.asyncio
+    async def test_weekday_skips_weekend(self):
+        """schedule='30 9 * * 1-5', 周日 9:31 → 不应触发"""
+        import datetime as dt
+        now = dt.datetime(2024, 1, 7, 9, 31, 0)  # 2024-01-07 is Sunday
+        assert now.weekday() == 6
+        task = _make_task("t1", schedule="30 9 * * 1-5")
+        scheduler = _make_scheduler([task])
+
+        triggered = await self._run_check(scheduler, now)
+        assert "t1" not in triggered
+
+    @pytest.mark.asyncio
+    async def test_first_run_triggers_within_window(self):
+        """首次运行，now=10:31, schedule='30 * * * *', max_missed=120 →
+        应触发 10:30（在 120s 窗口内）"""
+        now = datetime.datetime(2024, 1, 1, 10, 31, 0)
+        task = _make_task("t1", schedule="30 * * * *")
+        scheduler = _make_scheduler([task], max_missed_seconds=120)
+
+        triggered = await self._run_check(scheduler, now)
+        assert "t1" in triggered
+        assert task.last_triggered == datetime.datetime(2024, 1, 1, 10, 30)
+
+    @pytest.mark.asyncio
+    async def test_first_run_skips_tight_window(self):
+        """首次运行，now=10:31, schedule='30 * * * *', max_missed=30 →
+        seed=10:30:29, get_next=10:30? 不管 get_next 返回啥，missed > 30 → 跳过"""
+        now = datetime.datetime(2024, 1, 1, 10, 31, 0)
+        task = _make_task("t1", schedule="30 * * * *")
+        scheduler = _make_scheduler([task], max_missed_seconds=30)
+
+        triggered = await self._run_check(scheduler, now)
+        assert "t1" not in triggered
+        assert task.last_triggered is None
+
+    @pytest.mark.asyncio
+    async def test_first_run_skips_far_past(self):
+        """首次运行，now=12:00, schedule='30 * * * *', max_missed=300 →
+        seed=11:55, get_next=12:30 > 12:00 → 不触发（下一个未来的触发点还没到）"""
+        now = datetime.datetime(2024, 1, 1, 12, 0, 0)
+        task = _make_task("t1", schedule="30 * * * *")
+        scheduler = _make_scheduler([task], max_missed_seconds=300)
+
+        triggered = await self._run_check(scheduler, now)
+        assert "t1" not in triggered
+        assert task.last_triggered is None
+
+    @pytest.mark.asyncio
+    async def test_multiple_tasks_independent(self):
+        """多个任务各自独立触发，max_missed=3600 足够覆盖 10:00 到 10:31 的窗口"""
+        now = datetime.datetime(2024, 1, 1, 10, 31, 0)
+        t1 = _make_task("t1", schedule="30 * * * *")
+        t2 = _make_task("t2", schedule="0 10 * * *")
+        scheduler = _make_scheduler([t1, t2], max_missed_seconds=3600)
+
+        triggered = await self._run_check(scheduler, now)
+        assert "t1" in triggered   # 10:30
+        assert "t2" in triggered   # 10:00
+        assert t1.last_triggered == datetime.datetime(2024, 1, 1, 10, 30)
+        assert t2.last_triggered == datetime.datetime(2024, 1, 1, 10, 0)
+
+
+class TestCheckAndTriggerMidnight:
+    """午夜跨天场景"""
+
+    @staticmethod
+    async def _run_check(scheduler, now_dt):
+        triggered = set()
+
+        async def fake_enqueue(task):
+            triggered.add(task.id)
+
+        original_enqueue = scheduler._enqueue_message
+        scheduler._enqueue_message = fake_enqueue
+
+        await scheduler._check_and_trigger(_now=now_dt)
+
+        scheduler._enqueue_message = original_enqueue
+        return triggered
+
+    @pytest.mark.asyncio
+    async def test_midnight_daily_task(self):
+        """跨午夜，每日 0:0 任务在 0:01 触发"""
+        now = datetime.datetime(2024, 1, 2, 0, 1, 0)
+        task = _make_task("t1", schedule="0 0 * * *",
+                          last_triggered=datetime.datetime(2024, 1, 1, 0, 0))
+        scheduler = _make_scheduler([task])
+
+        triggered = await self._run_check(scheduler, now)
+        assert "t1" in triggered
+        assert task.last_triggered == datetime.datetime(2024, 1, 2, 0, 0)
+
+
+class TestCheckAndTriggerSkipAdvancesState:
+    """跳过积压事件时必须推进 last_triggered，避免每 60s 重复扫描"""
+
+    @staticmethod
+    async def _run_check(scheduler, now_dt):
+        triggered = set()
+
+        async def fake_enqueue(task):
+            triggered.add(task.id)
+
+        original_enqueue = scheduler._enqueue_message
+        scheduler._enqueue_message = fake_enqueue
+
+        await scheduler._check_and_trigger(_now=now_dt)
+
+        scheduler._enqueue_message = original_enqueue
+        return triggered
+
+    @pytest.mark.asyncio
+    async def test_skip_advances_last_triggered(self):
+        """last_triggered=Jan1, max_missed=30, now=Jan3 00:01 → Jan2 和 Jan3 都被跳过，
+        但 last_triggered 推进到 Jan3，不会停在 None"""
+        last = datetime.datetime(2024, 1, 1, 0, 0)
+        now = datetime.datetime(2024, 1, 3, 0, 1, 0)
+        task = _make_task("t1", schedule="0 0 * * *", last_triggered=last)
+        scheduler = _make_scheduler([task], max_missed_seconds=30)
+
+        triggered = await self._run_check(scheduler, now)
+        assert "t1" not in triggered
+        assert task.last_triggered is not None
+        assert task.last_triggered >= datetime.datetime(2024, 1, 3, 0, 0)
+
+    @pytest.mark.asyncio
+    async def test_skip_no_rescan_on_next_cycle(self):
+        """首次扫描推进了 last_triggered，60s 后再查不重复扫描跳过的事件"""
+        last = datetime.datetime(2024, 1, 1, 0, 0)
+        now = datetime.datetime(2024, 1, 3, 0, 1, 0)
+        task = _make_task("t1", schedule="0 0 * * *", last_triggered=last)
+        scheduler = _make_scheduler([task], max_missed_seconds=30)
+
+        triggered1 = await self._run_check(scheduler, now)
+        assert "t1" not in triggered1
+        first_lt = task.last_triggered
+        assert first_lt is not None
+
+        triggered2 = await self._run_check(scheduler, now)
+        assert "t1" not in triggered2
+        assert task.last_triggered == first_lt
+
+    @pytest.mark.asyncio
+    async def test_skip_then_trigger_on_time(self):
+        """跳过积压后，到点仍能正常触发"""
+        last = datetime.datetime(2024, 1, 1, 0, 0)
+        now1 = datetime.datetime(2024, 1, 3, 0, 1, 0)
+        task = _make_task("t1", schedule="0 0 * * *", last_triggered=last)
+        scheduler = _make_scheduler([task], max_missed_seconds=300)
+
+        triggered1 = await self._run_check(scheduler, now1)
+        assert "t1" in triggered1  # Jan 3 midnight 60s 内, 在 300s 窗口内触发
+        assert task.last_triggered == datetime.datetime(2024, 1, 3, 0, 0)
+
+        now2 = datetime.datetime(2024, 1, 4, 0, 1, 0)
+        triggered2 = await self._run_check(scheduler, now2)
+        assert "t1" in triggered2
+        assert task.last_triggered == datetime.datetime(2024, 1, 4, 0, 0)
+
+
+class TestSaveLoadLastTriggered:
+    """持久化 last_triggered 测试"""
+
+    def test_save_includes_last_triggered(self, tmp_path):
+        from gateway.cron_scheduler import CronScheduler, CronTask
+        import datetime as dt
+
+        tasks_file = tmp_path / "tasks.json"
+        sched = CronScheduler.__new__(CronScheduler)
+        sched._task_file = tasks_file
+        sched._tasks = {}
+        sched._running = False
+        sched._runner_task = None
+        sched._queues = {}
+        sched._processing = {}
+        sched._push_callback = None
+        sched._max_missed_seconds = 300
+
+        lt = dt.datetime(2024, 1, 1, 10, 30)
+        task = CronTask(
+            id="t1", name="test", schedule="30 * * * *",
+            description="", agent_id="main_agent", session_id="default",
+            enabled=True, last_triggered=lt,
+        )
+        sched._tasks["t1"] = task
+        sched.save_tasks()
+
+        data = json.loads(tasks_file.read_text())
+        assert len(data) == 1
+        assert data[0]["last_triggered"] == "2024-01-01T10:30:00"
+
+    def test_load_restores_last_triggered(self, tmp_path):
+        from gateway.cron_scheduler import CronScheduler
+        import datetime as dt
+
+        tasks_file = tmp_path / "tasks.json"
+        tasks_file.parent.mkdir(parents=True, exist_ok=True)
+        tasks_file.write_text(json.dumps([{
+            "id": "t1", "name": "test", "schedule": "30 * * * *",
+            "description": "", "agent_id": "main_agent", "session_id": "default",
+            "enabled": True, "last_triggered": "2024-01-01T10:30:00",
+        }]))
+
+        sched = CronScheduler.__new__(CronScheduler)
+        sched._task_file = tasks_file
+        sched._tasks = {}
+        sched._running = False
+        sched._runner_task = None
+        sched._queues = {}
+        sched._processing = {}
+        sched._push_callback = None
+        sched._max_missed_seconds = 300
+
+        sched.load_tasks()
+        task = sched._tasks.get("t1")
+        assert task is not None
+        assert task.last_triggered == dt.datetime(2024, 1, 1, 10, 30)
+
+    def test_load_missing_last_triggered_is_none(self, tmp_path):
+        from gateway.cron_scheduler import CronScheduler
+
+        tasks_file = tmp_path / "tasks.json"
+        tasks_file.parent.mkdir(parents=True, exist_ok=True)
+        tasks_file.write_text(json.dumps([{
+            "id": "t1", "name": "test", "schedule": "30 * * * *",
+            "enabled": True,
+        }]))
+
+        sched = CronScheduler.__new__(CronScheduler)
+        sched._task_file = tasks_file
+        sched._tasks = {}
+        sched._running = False
+        sched._runner_task = None
+        sched._queues = {}
+        sched._processing = {}
+        sched._push_callback = None
+        sched._max_missed_seconds = 300
+
+        sched.load_tasks()
+        task = sched._tasks.get("t1")
+        assert task is not None
+        assert task.last_triggered is None
+
+
+class TestCronSchedulerInit:
+    """CronScheduler 构造参数测试"""
+
+    def test_default_max_missed_seconds(self):
+        from gateway.cron_scheduler import CronScheduler
+        sched = CronScheduler()
+        assert sched._max_missed_seconds == 300
+
+    def test_custom_max_missed_seconds(self):
+        from gateway.cron_scheduler import CronScheduler
+        sched = CronScheduler(max_missed_seconds=60)
+        assert sched._max_missed_seconds == 60

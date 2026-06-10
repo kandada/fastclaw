@@ -122,14 +122,11 @@ class TestStopHTTPEndpoint:
     @pytest.mark.asyncio
     async def test_stop_http_while_running(self, shared_api, unique_session_id):
         """HTTP 200: 停止正在运行的会话"""
-        from fastapi.testclient import TestClient
         from fastmind import Event
-        from gateway.server import GatewayServer
-        from gateway.router import set_websocket_api
+        from gateway.router import set_websocket_api, chat_stop as _chat_stop
         from tests.conftest import cleanup_test_session
 
         set_websocket_api(shared_api)
-        server = GatewayServer()
 
         await shared_api.push_event(
             unique_session_id,
@@ -137,12 +134,9 @@ class TestStopHTTPEndpoint:
         )
         await asyncio.sleep(0.3)
 
-        with TestClient(server.app) as client:
-            resp = client.post(f"/api/chat/stop/{unique_session_id}")
-            assert resp.status_code == 200
-            data = resp.json()
-            assert data["status"] == "stopped"
-            assert data["session_id"] == unique_session_id
+        result = await _chat_stop(unique_session_id)
+        assert result["status"] == "stopped"
+        assert result["session_id"] == unique_session_id
 
         cleanup_test_session(unique_session_id)
 

@@ -434,3 +434,119 @@ class TestWebUIStaticFiles:
             response = client.get("/webui/static/js/vue3.prod.js")
             assert response.status_code == 200
             assert "javascript" in response.headers["content-type"]
+
+
+class TestInferChannel:
+    """_infer_channel 测试"""
+
+    def test_webui_session(self):
+        from gateway.router import _infer_channel
+        assert _infer_channel("a1b2c3d4") == "webui"
+        assert _infer_channel("abc12345") == "webui"
+
+    def test_feishu_session(self):
+        from gateway.router import _infer_channel
+        assert _infer_channel("feishu_abc12345") == "feishu"
+
+    def test_telegram_session(self):
+        from gateway.router import _infer_channel
+        assert _infer_channel("telegram_12345678") == "telegram"
+
+    def test_imessage_session(self):
+        from gateway.router import _infer_channel
+        assert _infer_channel("imessage_chat123") == "imessage"
+
+    def test_cli_session(self):
+        from gateway.router import _infer_channel
+        assert _infer_channel("cli_abc12345") == "cli"
+
+    def test_empty_string(self):
+        from gateway.router import _infer_channel
+        assert _infer_channel("") == "unknown"
+
+    def test_none_session(self):
+        from gateway.router import _infer_channel
+        assert _infer_channel(None) == "unknown"
+
+
+class TestSessionChannel:
+    """Session Channel 字段测试"""
+
+    def test_create_session_includes_channel(self):
+        """POST /api/sessions 创建会话应包含 channel 字段"""
+        from fastapi.testclient import TestClient
+        from gateway.server import GatewayServer
+
+        server = GatewayServer()
+
+        with TestClient(server.app) as client:
+            response = client.post("/api/sessions", json={})
+            assert response.status_code == 200
+            data = response.json()
+            assert data.get("channel") == "webui"
+            assert data.get("session_id") is not None
+
+    def test_list_sessions_has_channel(self):
+        """GET /api/sessions 返回的会话都有 channel 字段，且新建的为 webui"""
+        from fastapi.testclient import TestClient
+        from gateway.server import GatewayServer
+
+        server = GatewayServer()
+
+        with TestClient(server.app) as client:
+            # 先创建一个 session
+            r = client.post("/api/sessions", json={})
+            created_id = r.json()["session_id"]
+            assert r.json().get("channel") == "webui"
+
+            response = client.get("/api/sessions")
+            assert response.status_code == 200
+            sessions = response.json()
+            assert isinstance(sessions, list)
+
+            session_map = {s["session_id"]: s for s in sessions}
+            # 刚创建的 session 必须有 channel 字段且值为 webui
+            assert session_map[created_id]["channel"] == "webui"
+            # 所有 session 都应有 channel 字段
+            for s in sessions:
+                assert "channel" in s, f"session {s.get('session_id')} missing 'channel'"
+                assert isinstance(s["channel"], str), f"session {s.get('session_id')} has non-string channel"
+
+    def test_old_session_without_channel_gets_inferred(self):
+        """无 channel 的旧记录应在 GET /api/sessions 时自动补全"""
+        from fastapi.testclient import TestClient
+        from gateway.server import GatewayServer
+        from gateway.router import load_sessions, save_sessions, ensure_sessions_db
+
+        server = GatewayServer()
+
+        # 直接写入一个没有 channel 字段的旧记录
+        ensure_sessions_db()
+        sessions = load_sessions()
+        sessions["feishu_oldtest"] = {
+            "session_id": "feishu_oldtest",
+            "agent_id": "main_agent",
+            "created_at": "123",
+            "last_active_time": 0,
+        }
+        sessions["oldwebui"] = {
+            "session_id": "oldwebui",
+            "agent_id": "main_agent",
+            "created_at": "123",
+            "last_active_time": 0,
+        }
+        save_sessions(sessions)
+
+        with TestClient(server.app) as client:
+            response = client.get("/api/sessions")
+            assert response.status_code == 200
+            data = response.json()
+            session_map = {s["session_id"]: s for s in data}
+
+            assert session_map["feishu_oldtest"]["channel"] == "feishu"
+            assert session_map["oldwebui"]["channel"] == "webui"
+
+            # 清理
+            del sessions["feishu_oldtest"]
+            del sessions["oldwebui"]
+            save_sessions(sessions)
