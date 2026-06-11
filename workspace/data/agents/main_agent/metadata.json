@@ -3,15 +3,15 @@
   "description": "FastClaw 主智能体",
   "llm": {
     "gateway": "openai",
-    "provider": "moonshot",
-    "model": "kimi-k2.5",
-    "api_key": "your-api-key",
-    "base_url": "https://api.moonshot.cn/v1",
-    "multimodal": true
+    "provider": "deepseek",
+    "model": "deepseek-v4-flash",
+    "api_key": "",
+    "base_url": "https://api.deepseek.com/v1",
+    "multimodal": false
   },
   "context": {
-    "max_tokens": 80000,
-    "unload_threshold_tokens": 80000
+    "max_tokens": 100000,
+    "unload_threshold_tokens": 90000
   },
   "timeout": 300,
   "extra_workspaces": [],
