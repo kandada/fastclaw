@@ -248,7 +248,21 @@
                     </el-table-column>
                     <el-table-column prop="description" label="Description"></el-table-column>
                     <el-table-column prop="agent_id" label="Agent" width="120"></el-table-column>
-                    <el-table-column prop="session_id" label="Session" width="150"></el-table-column>
+                    <el-table-column label="Session" width="180">
+                        <template #default="{row}">
+                            <template v-if="!row.session_id">
+                                <span style="color:#909399;font-size:12px">Auto (latest active)</span>
+                            </template>
+                            <template v-else-if="!sessions.some(s => s.session_id === row.session_id)">
+                                <el-tooltip content="Session deleted - will fallback to latest active session" placement="top">
+                                    <el-tag type="warning" size="small">{{ row.session_id }}</el-tag>
+                                </el-tooltip>
+                            </template>
+                            <template v-else>
+                                <code>{{ row.session_id }}</code>
+                            </template>
+                        </template>
+                    </el-table-column>
                     <el-table-column label="Status" width="100">
                         <template #default="{row}">
                             <el-tag :type="row.enabled ? 'success' : 'info'" size="small">{{ row.enabled ? 'Enabled' : 'Disabled' }}</el-tag>
@@ -265,10 +279,57 @@
                         </template>
                     </el-table-column>
                 </el-table>
-                <el-dialog v-model="cronDialogVisible" :title="editingCron ? 'Edit Task' : 'New Task'" width="450px">
+                <el-dialog v-model="cronDialogVisible" :title="editingCron ? 'Edit Task' : 'New Task'" width="500px">
                     <el-form :model="cronForm" label-width="90px">
                         <el-form-item label="Name"><el-input v-model="cronForm.name"></el-input></el-form-item>
-                        <el-form-item label="Schedule"><el-input v-model="cronForm.schedule" placeholder="0 9 * * *"></el-input></el-form-item>
+                        <el-form-item label="Schedule">
+                            <div v-if="!cronAdvanced" style="display:flex;flex-direction:column;gap:8px;width:100%">
+                                <el-select v-model="cronFrequency" style="width:100%" @change="onCronBuilderChange">
+                                    <el-option label="Every Day" value="daily"></el-option>
+                                    <el-option label="Weekdays (Mon-Fri)" value="weekdays"></el-option>
+                                    <el-option label="Weekends (Sat-Sun)" value="weekends"></el-option>
+                                    <el-option label="Custom Days..." value="custom_days"></el-option>
+                                    <el-option label="Every N Hours" value="every_n_hours"></el-option>
+                                    <el-option label="Every N Minutes" value="every_n_minutes"></el-option>
+                                    <el-option label="Day of Month" value="day_of_month"></el-option>
+                                </el-select>
+                                <el-time-picker v-if="showCronTime" v-model="cronTime" format="HH:mm" value-format="HH:mm" placeholder="Select time" style="width:100%" @change="onCronBuilderChange"></el-time-picker>
+                                <div v-if="cronFrequency === 'custom_days'" style="display:flex;flex-wrap:wrap;gap:4px 12px">
+                                    <el-checkbox v-model="cronDays.mon" @change="onCronBuilderChange">Mon</el-checkbox>
+                                    <el-checkbox v-model="cronDays.tue" @change="onCronBuilderChange">Tue</el-checkbox>
+                                    <el-checkbox v-model="cronDays.wed" @change="onCronBuilderChange">Wed</el-checkbox>
+                                    <el-checkbox v-model="cronDays.thu" @change="onCronBuilderChange">Thu</el-checkbox>
+                                    <el-checkbox v-model="cronDays.fri" @change="onCronBuilderChange">Fri</el-checkbox>
+                                    <el-checkbox v-model="cronDays.sat" @change="onCronBuilderChange">Sat</el-checkbox>
+                                    <el-checkbox v-model="cronDays.sun" @change="onCronBuilderChange">Sun</el-checkbox>
+                                </div>
+                                <div v-if="cronFrequency === 'every_n_hours'" style="display:flex;align-items:center;gap:8px">
+                                    <span style="white-space:nowrap">Every</span>
+                                    <el-input-number v-model="cronInterval" :min="1" :max="23" style="flex:1" @change="onCronBuilderChange"></el-input-number>
+                                    <span style="white-space:nowrap">hours</span>
+                                </div>
+                                <div v-if="cronFrequency === 'every_n_minutes'" style="display:flex;align-items:center;gap:8px">
+                                    <span style="white-space:nowrap">Every</span>
+                                    <el-input-number v-model="cronInterval" :min="1" :max="59" style="flex:1" @change="onCronBuilderChange"></el-input-number>
+                                    <span style="white-space:nowrap">minutes</span>
+                                </div>
+                                <div v-if="cronFrequency === 'day_of_month'" style="display:flex;align-items:center;gap:8px">
+                                    <span style="white-space:nowrap">Day</span>
+                                    <el-input-number v-model="cronDayOfMonth" :min="1" :max="31" style="flex:1" @change="onCronBuilderChange"></el-input-number>
+                                    <span style="white-space:nowrap">of month</span>
+                                </div>
+                                <div style="font-size:12px;color:#888;font-family:monospace;padding:4px 8px;background:#f5f5f5;border-radius:4px;display:flex;align-items:center;justify-content:space-between">
+                                    <code>{{ cronForm.schedule || generateCron() }}</code>
+                                    <el-button text size="small" @click="switchToAdvanced">Advanced</el-button>
+                                </div>
+                            </div>
+                            <div v-else>
+                                <el-input v-model="cronForm.schedule" placeholder="0 9 * * *"></el-input>
+                                <div style="margin-top:4px">
+                                    <el-button text size="small" @click="switchToSimple">Simple mode</el-button>
+                                </div>
+                            </div>
+                        </el-form-item>
                         <el-form-item label="Description"><el-input v-model="cronForm.description" type="textarea" :rows="2"></el-input></el-form-item>
                         <el-form-item label="Agent">
                             <el-select v-model="cronForm.agent_id" style="width:100%">
@@ -276,9 +337,11 @@
                             </el-select>
                         </el-form-item>
                         <el-form-item label="Session">
-                            <el-select v-model="cronForm.session_id" style="width:100%" clearable filterable allow-create default-first-option placeholder="Select or paste session_id">
-                                <el-option v-for="s in sessions" :key="s.session_id" :label="s.channel ? s.channel + ': ' + (s.name || s.session_id) : (s.name || s.session_id)" :value="s.session_id"></el-option>
+                            <el-select v-model="cronForm.session_id" style="width:100%" clearable filterable allow-create default-first-option placeholder="Auto (latest active session)">
+                                <el-option label="Auto (latest active session)" value=""></el-option>
+                                <el-option v-for="s in sessions" :key="s.session_id" :label="s.session_id + (s.name ? ' - ' + s.name : '') + ' (' + (s.channel || 'webui') + ')'" :value="s.session_id"></el-option>
                             </el-select>
+                            <div style="font-size:12px;color:#909399;margin-top:4px">Optional. Empty or deleted sessions fallback to the latest active webui session.</div>
                         </el-form-item>
                         <el-form-item label="Enabled"><el-switch v-model="cronForm.enabled"></el-switch></el-form-item>
                     </el-form>
@@ -517,7 +580,7 @@
         }
     </script>
     <script>
-        const { createApp, ref, computed, nextTick, onMounted, onUnmounted } = Vue;
+        const { createApp, ref, computed, watch, nextTick, onMounted, onUnmounted } = Vue;
         const app = createApp({
             setup() {
                 const activeTab = ref('chat');
@@ -534,11 +597,22 @@
                 const messageBuffer = new Map();
                 let currentStreamingMsg = null;
                 let _recoverMsgId = null;
+                let chatObserver = null;
+                let _chatScrollEl = null;
+                let _chatScrollHandler = null;
+                const shouldAutoScroll = ref(true);
 
                 const cronTasks = ref([]);
                 const cronDialogVisible = ref(false);
                 const editingCron = ref(null);
                 const cronForm = ref({ name: '', schedule: '', description: '', agent_id: 'main_agent', session_id: '', enabled: true });
+                const cronAdvanced = ref(false);
+                const cronFrequency = ref('daily');
+                const cronTime = ref('09:00');
+                const cronDays = ref({ mon: true, tue: false, wed: false, thu: false, fri: false, sat: false, sun: false });
+                const cronInterval = ref(1);
+                const cronDayOfMonth = ref(1);
+                const showCronTime = computed(() => cronFrequency.value !== 'every_n_hours' && cronFrequency.value !== 'every_n_minutes');
                 const agents = ref([]);
                 const settings = ref({ default_agent_id: 'main_agent', run_shell_timeout: 60, run_skills_timeout: 60, extra_workspaces: [] });
                 const newExtraWorkspace = ref('');
@@ -777,12 +851,44 @@
                 }
 
                 function scrollBottom() {
-                    requestAnimationFrame(() => {
+                    shouldAutoScroll.value = true;
+                    nextTick(() => {
                         requestAnimationFrame(() => {
                             const el = document.querySelector('.chat-messages');
                             if (el) el.scrollTop = el.scrollHeight;
                         });
                     });
+                }
+
+                function setupChatScrollObserver() {
+                    destroyChatScrollObserver();
+                    const el = document.querySelector('.chat-messages');
+                    if (!el) return;
+                    _chatScrollEl = el;
+                    _chatScrollHandler = () => {
+                        const threshold = 50;
+                        const bottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+                        shouldAutoScroll.value = bottom < threshold;
+                    };
+                    el.addEventListener('scroll', _chatScrollHandler, { passive: true });
+                    chatObserver = new MutationObserver(() => {
+                        if (shouldAutoScroll.value) {
+                            el.scrollTop = el.scrollHeight;
+                        }
+                    });
+                    chatObserver.observe(el, { childList: true, subtree: true, characterData: true });
+                }
+
+                function destroyChatScrollObserver() {
+                    if (chatObserver) {
+                        chatObserver.disconnect();
+                        chatObserver = null;
+                    }
+                    if (_chatScrollEl && _chatScrollHandler) {
+                        _chatScrollEl.removeEventListener('scroll', _chatScrollHandler);
+                        _chatScrollEl = null;
+                        _chatScrollHandler = null;
+                    }
                 }
 
                 function connect(sessionId) {
@@ -862,7 +968,6 @@
                             if (msgEl) {
                                 msgEl.classList.add('streaming');
                             }
-                            scrollBottom();
                         });
                     });
                     
@@ -875,7 +980,6 @@
                                 _isStreaming: true, timestamp: Date.now()
                             };
                             messages.value.push(currentStreamingMsg);
-                            scrollBottom();
                         }
                         currentStreamingMsg.content += data.delta || '';
                         if (currentStreamingMsg.segments) {
@@ -891,19 +995,17 @@
                         if (msgEl) {
                             msgEl.innerHTML = getMsgContent(currentStreamingMsg, false);
                         }
-                        scrollBottom();
                     });
-                    
+
                     chatEventSource.addEventListener('message.thinking', (e) => {
                         const data = JSON.parse(e.data);
                         if (!currentStreamingMsg) {
                             currentStreamingMsg = {
                                 id: data.message_id || `thinking_${Date.now()}`,
                                 role: 'assistant', content: '', segments: [],
-                                thinking: '', _isStreaming: true, timestamp: Date.now()
+                                thinking: '',                             _isStreaming: true, timestamp: Date.now()
                             };
                             messages.value.push(currentStreamingMsg);
-                            scrollBottom();
                         }
                         currentStreamingMsg.thinking = (currentStreamingMsg.thinking || '') + (data.delta || '');
                         if (currentStreamingMsg.segments) {
@@ -919,9 +1021,8 @@
                         if (msgEl) {
                             msgEl.innerHTML = getMsgContent(currentStreamingMsg, false);
                         }
-                        scrollBottom();
                     });
-                    
+
                     chatEventSource.addEventListener('message.tool_start', (e) => {
                         const data = JSON.parse(e.data);
                         let msg = messageBuffer.get(e.lastEventId);
@@ -943,7 +1044,6 @@
                                 msgEl.classList.remove('streaming');
                                 msgEl.querySelector('.msg-content').innerHTML = getMsgContent(msg, false);
                             }
-                            nextTick(() => scrollBottom());
                         }
                     });
                     
@@ -1003,9 +1103,11 @@
                         // Cron notification — the actual message is delivered via
                         // chat SSE path with isCron flag in message.start
                     });
+                    nextTick(() => setupChatScrollObserver());
                 }
 
                 function disconnect() {
+                    destroyChatScrollObserver();
                     if (chatEventSource) { chatEventSource.close(); chatEventSource = null; }
                     if (cronEventSource) { cronEventSource.close(); cronEventSource = null; }
                     isStreaming.value = false;
@@ -1140,27 +1242,154 @@
                     if (task) {
                         editingCron.value = task;
                         cronForm.value = { ...task };
+                        parseCronToSettings();
                     } else {
                         editingCron.value = null;
                         cronForm.value = { name: '', schedule: '', description: '', agent_id: 'main_agent', session_id: '', enabled: true };
+                        resetCronBuilder();
                     }
                     cronDialogVisible.value = true;
                 }
 
+                function generateCron() {
+                    const t = cronTime.value || '09:00';
+                    const [h, m] = t.split(':').map(Number);
+                    const hour = isNaN(h) ? 9 : h;
+                    const minute = isNaN(m) ? 0 : m;
+                    switch (cronFrequency.value) {
+                        case 'daily': return `${minute} ${hour} * * *`;
+                        case 'weekdays': return `${minute} ${hour} * * 1-5`;
+                        case 'weekends': return `${minute} ${hour} * * 0,6`;
+                        case 'custom_days': {
+                            const d = cronDays.value;
+                            const days = [];
+                            if (d.mon) days.push(1);
+                            if (d.tue) days.push(2);
+                            if (d.wed) days.push(3);
+                            if (d.thu) days.push(4);
+                            if (d.fri) days.push(5);
+                            if (d.sat) days.push(6);
+                            if (d.sun) days.push(0);
+                            const dow = days.length > 0 ? days.join(',') : '*';
+                            return `${minute} ${hour} * * ${dow}`;
+                        }
+                        case 'every_n_hours': return `0 */${cronInterval.value} * * *`;
+                        case 'every_n_minutes': return `*/${cronInterval.value} * * * *`;
+                        case 'day_of_month': return `${minute} ${hour} ${cronDayOfMonth.value} * *`;
+                        default: return `${minute} ${hour} * * *`;
+                    }
+                }
+
+                function onCronBuilderChange() {
+                    cronForm.value.schedule = generateCron();
+                }
+
+                function resetCronBuilder() {
+                    cronAdvanced.value = false;
+                    cronFrequency.value = 'daily';
+                    cronTime.value = '09:00';
+                    cronDays.value = { mon: true, tue: false, wed: false, thu: false, fri: false, sat: false, sun: false };
+                    cronInterval.value = 1;
+                    cronDayOfMonth.value = 1;
+                }
+
+                function parseCronToSettings() {
+                    const s = (cronForm.value.schedule || '').trim();
+                    if (!s) { resetCronBuilder(); cronForm.value.schedule = generateCron(); return; }
+                    const parts = s.split(/\s+/);
+                    if (parts.length !== 5) { resetCronBuilder(); cronForm.value.schedule = generateCron(); return; }
+                    const [min, hour, dom, mon, dow] = parts;
+
+                    let matched = false;
+
+                    if (dom === '*' && mon === '*' && dow === '*') {
+                        if (hour.startsWith('*/')) {
+                            cronFrequency.value = 'every_n_hours';
+                            cronInterval.value = parseInt(hour.replace('*/', '')) || 1;
+                            matched = true;
+                        } else if (min.startsWith('*/') && hour === '*') {
+                            cronFrequency.value = 'every_n_minutes';
+                            cronInterval.value = parseInt(min.replace('*/', '')) || 1;
+                            matched = true;
+                        } else {
+                            cronFrequency.value = 'daily';
+                            matched = true;
+                        }
+                    } else if (dom === '*' && mon === '*' && dow === '1-5') {
+                        cronFrequency.value = 'weekdays'; matched = true;
+                    } else if (dom === '*' && mon === '*' && (dow === '0,6' || dow === '6,0')) {
+                        cronFrequency.value = 'weekends'; matched = true;
+                    } else if (dom !== '*' && mon === '*' && dow === '*' && !isNaN(parseInt(dom))) {
+                        cronFrequency.value = 'day_of_month';
+                        cronDayOfMonth.value = parseInt(dom);
+                        matched = true;
+                    } else if (mon === '*' && /^[0-6](,[0-6])*$/.test(dow)) {
+                        cronFrequency.value = 'custom_days';
+                        const dl = dow.split(',').map(Number);
+                        cronDays.value = {
+                            mon: dl.includes(1), tue: dl.includes(2), wed: dl.includes(3),
+                            thu: dl.includes(4), fri: dl.includes(5), sat: dl.includes(6), sun: dl.includes(0)
+                        };
+                        matched = true;
+                    }
+
+                    if (matched) {
+                        cronAdvanced.value = false;
+                        if (showCronTime.value) {
+                            const mi = isNaN(parseInt(min)) ? 0 : parseInt(min);
+                            const hr = isNaN(parseInt(hour)) ? 9 : parseInt(hour);
+                            cronTime.value = `${String(hr).padStart(2, '0')}:${String(mi).padStart(2, '0')}`;
+                        }
+                    } else {
+                        cronAdvanced.value = true;
+                    }
+                }
+
+                function switchToAdvanced() {
+                    cronForm.value.schedule = generateCron();
+                    cronAdvanced.value = true;
+                }
+
+                function switchToSimple() {
+                    parseCronToSettings();
+                }
+
                 async function saveCron() {
                     const t = { ...cronForm.value };
+                    if (!cronAdvanced.value) {
+                        t.schedule = generateCron();
+                    }
                     if (!t.id) t.id = 'task_' + Date.now();
-                    
-                    // 验证 session_id 是否有效
-                    const validSessionIds = sessions.value.map(s => s.session_id);
-                    if (t.session_id && !validSessionIds.includes(t.session_id)) {
-                        console.warn('Invalid session_id, clearing:', t.session_id);
+
+                    if (!t.name || !t.name.trim()) {
+                        ElementPlus.ElMessage.warning('Name is required');
+                        return;
+                    }
+                    if (!t.schedule || !t.schedule.trim()) {
+                        ElementPlus.ElMessage.warning('Schedule is required');
+                        return;
+                    }
+
+                    if (t.session_id && !sessions.value.some(s => s.session_id === t.session_id)) {
                         t.session_id = '';
                     }
-                    
-                    await fetch('/api/crons', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(t) });
-                    cronDialogVisible.value = false;
-                    loadCronTasks();
+
+                    try {
+                        const r = await fetch('/api/crons', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(t)
+                        });
+                        if (!r.ok) {
+                            const err = await r.json();
+                            ElementPlus.ElMessage.error(err.detail || 'Failed to save cron task');
+                            return;
+                        }
+                        cronDialogVisible.value = false;
+                        loadCronTasks();
+                    } catch (e) {
+                        ElementPlus.ElMessage.error('Network error: ' + e.message);
+                    }
                 }
 
                 async function deleteCron(id) {
@@ -1289,6 +1518,7 @@
                         loadSessions().then(() => {
                             if (currentSessionId.value) {
                                 connect(currentSessionId.value);
+                                nextTick(() => scrollBottom());
                             } else {
                                 selectLatestSession();
                             }
@@ -1365,7 +1595,9 @@
                 return {
                     activeTab, sessions, currentSessionId, currentSessionName, messages, chatText,
                     isStreaming, isSending, wsConnected, searchText, filteredSessions, unreadCounts,
-                    cronTasks, cronDialogVisible, editingCron, cronForm, agents, settings,
+                    cronTasks, cronDialogVisible, editingCron, cronForm,
+                    cronAdvanced, cronFrequency, cronTime, cronDays, cronInterval, cronDayOfMonth, showCronTime,
+                    agents, settings,
                     bindAgentDialogVisible, bindAgentForm,
                     renameDialogVisible, renameForm,
                     agentDialogVisible, editingAgent, agentForm,
@@ -1373,7 +1605,8 @@
                     loadCronTasks, showCronDialog, saveCron, deleteCron, toggleCron, triggerCron,
                     loadAgents, loadSettings, saveSettings, resetSettings, onTabChange,
                     showBindAgentDialog, bindAgent, showRenameDialog, renameSession, showAgentDialog, saveAgent, deleteAgent,
-                    copyMessage, handleSessionMenu, newExtraWorkspace, addExtraWorkspace, removeExtraWorkspace
+                    copyMessage, handleSessionMenu, newExtraWorkspace, addExtraWorkspace, removeExtraWorkspace,
+                    generateCron, onCronBuilderChange, resetCronBuilder, parseCronToSettings, switchToAdvanced, switchToSimple
                 };
             }
         });

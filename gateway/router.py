@@ -600,6 +600,19 @@ async def get_stream_lock(session_id: str) -> asyncio.Lock:
     return _stream_consume_locks[session_id]
 
 
+def _find_latest_webui_session(sessions: dict) -> str:
+    """找到最新活跃的 webui 会话 ID"""
+    latest_id = None
+    latest_time = 0
+    for sid, s in sessions.items():
+        if s.get("channel") == "webui":
+            t = s.get("last_active_time", 0)
+            if t > latest_time:
+                latest_time = t
+                latest_id = sid
+    return latest_id
+
+
 async def push_cron_event(session_id: str, event_data: dict):
     """推送 Cron 事件到 AI 处理，响应通过 Chat SSE 路径消费，无需阻塞"""
     print(f"[push_cron_event] session_id={session_id}, sending to AI")
@@ -607,6 +620,16 @@ async def push_cron_event(session_id: str, event_data: dict):
     if _websocket_api is None:
         print("[push_cron_event] ERROR: _websocket_api is None!")
         return
+
+    sessions = await _load_sessions_async()
+    if not session_id or session_id not in sessions:
+        fallback = _find_latest_webui_session(sessions)
+        if fallback:
+            print(f"[push_cron_event] session_id={session_id or 'empty'} not found in sessions, falling back to {fallback}")
+            session_id = fallback
+        else:
+            print("[push_cron_event] no webui sessions found, using 'default'")
+            session_id = "default"
 
     from fastmind import Event
 
