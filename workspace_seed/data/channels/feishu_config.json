@@ -1,0 +1,13 @@
+{
+  "enabled": true,
+  "app_id": "",
+  "app_secret": "",
+  "bot_name": "FastClaw",
+  "default_agent": "main_agent",
+  "auto_reply": true,
+  "tenant_access_token": "",
+  "tenant_token_expires_at": 1781245487,
+  "user_access_token": "",
+  "user_token_expires_at": 1775230232,
+  "user_refresh_token": ""
+}

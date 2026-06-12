@@ -11,32 +11,17 @@ import uuid
 from typing import Callable, Awaitable, List, Dict, Any, Optional
 from fastmind import Event
 
-from fastclaw.core.config import get_sessions_dir
+from fastclaw.core.config import get_sessions_dir, get_session_store
 
-
-SESSION_DB_FILE = get_sessions_dir() / "sessions.json"
+SESSION_DB_FILE = get_session_store().db_file
 
 
 def load_sessions() -> dict:
-    """加载 sessions"""
-    db_file = SESSION_DB_FILE
-    if db_file.exists():
-        try:
-            return json.loads(db_file.read_text())
-        except:
-            time.sleep(0.05)
-            try:
-                return json.loads(db_file.read_text())
-            except:
-                pass
-    return {}
+    return get_session_store().load()
 
 
 def save_sessions(sessions: dict):
-    """保存 sessions"""
-    db_file = SESSION_DB_FILE
-    db_file.parent.mkdir(parents=True, exist_ok=True)
-    db_file.write_text(json.dumps(sessions, indent=2, ensure_ascii=False))
+    get_session_store().save(sessions)
 
 
 async def _load_sessions_async() -> dict:

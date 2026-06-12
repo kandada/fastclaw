@@ -100,6 +100,10 @@ FastClaw is built on the core concept of **event-driven agent orchestration**. K
 
 ## Changelog
 
+### v1.1.15 (2026-06-12)
+
+### v1.1.14 (2026-06-12)
+
 ### v1.1.13 (2026-06-12)
 
 ### v1.1.12 (2026-06-11)

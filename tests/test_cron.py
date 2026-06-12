@@ -406,27 +406,24 @@ def _make_scheduler(tasks=None, max_missed_seconds=300):
     return sched
 
 
+async def _run_check(scheduler, now_dt):
+    """Run _check_and_trigger at a fake 'now', return set of triggered task_ids."""
+    triggered = set()
+
+    async def fake_enqueue(task):
+        triggered.add(task.id)
+
+    original_enqueue = scheduler._enqueue_message
+    scheduler._enqueue_message = fake_enqueue
+
+    await scheduler._check_and_trigger(_now=now_dt)
+
+    scheduler._enqueue_message = original_enqueue
+    return triggered
+
+
 class TestCheckAndTrigger:
     """测试 _check_and_trigger 调度核心逻辑"""
-
-    # ------------------------------------------------------------------
-    # Helper: run _check_and_trigger with a fake clock, collect triggered
-    # ------------------------------------------------------------------
-    @staticmethod
-    async def _run_check(scheduler, now_dt):
-        """Run _check_and_trigger at a fake 'now', return set of triggered task_ids."""
-        triggered = set()
-
-        async def fake_enqueue(task):
-            triggered.add(task.id)
-
-        original_enqueue = scheduler._enqueue_message
-        scheduler._enqueue_message = fake_enqueue
-
-        await scheduler._check_and_trigger(_now=now_dt)
-
-        scheduler._enqueue_message = original_enqueue
-        return triggered
 
     # ------------------------------------------------------------------
     # Tests
@@ -438,7 +435,7 @@ class TestCheckAndTrigger:
         task = _make_task("t1", schedule="30 * * * *")
         scheduler = _make_scheduler([task])
 
-        triggered = await self._run_check(scheduler, now)
+        triggered = await _run_check(scheduler, now)
         assert "t1" in triggered
         assert task.last_triggered == datetime.datetime(2024, 1, 1, 10, 30)
 
@@ -449,7 +446,7 @@ class TestCheckAndTrigger:
         task = _make_task("t1", schedule="30 * * * *")
         scheduler = _make_scheduler([task])
 
-        triggered = await self._run_check(scheduler, now)
+        triggered = await _run_check(scheduler, now)
         assert "t1" not in triggered
         assert task.last_triggered is None
 
@@ -461,7 +458,7 @@ class TestCheckAndTrigger:
         task = _make_task("t1", schedule="30 * * * *", last_triggered=last)
         scheduler = _make_scheduler([task])
 
-        triggered = await self._run_check(scheduler, now)
+        triggered = await _run_check(scheduler, now)
         assert "t1" not in triggered
         assert task.last_triggered == last
 
@@ -473,7 +470,7 @@ class TestCheckAndTrigger:
         task = _make_task("t1", schedule="30 * * * *", last_triggered=last)
         scheduler = _make_scheduler([task])
 
-        triggered = await self._run_check(scheduler, now)
+        triggered = await _run_check(scheduler, now)
         assert "t1" in triggered
         assert task.last_triggered == datetime.datetime(2024, 1, 1, 11, 30)
 
@@ -485,7 +482,7 @@ class TestCheckAndTrigger:
         task = _make_task("t1", schedule="30 * * * *")
         scheduler = _make_scheduler([task], max_missed_seconds=600)
 
-        triggered = await self._run_check(scheduler, now)
+        triggered = await _run_check(scheduler, now)
         assert "t1" in triggered
         assert task.last_triggered == datetime.datetime(2024, 1, 1, 11, 30)
 
@@ -496,7 +493,7 @@ class TestCheckAndTrigger:
         task = _make_task("t1", schedule="30 * * * *")
         scheduler = _make_scheduler([task], max_missed_seconds=300)
 
-        triggered = await self._run_check(scheduler, now)
+        triggered = await _run_check(scheduler, now)
         assert "t1" not in triggered
         assert task.last_triggered is None
 
@@ -507,7 +504,7 @@ class TestCheckAndTrigger:
         task = _make_task("t1", schedule="30 * * * *", enabled=False)
         scheduler = _make_scheduler([task])
 
-        triggered = await self._run_check(scheduler, now)
+        triggered = await _run_check(scheduler, now)
         assert "t1" not in triggered
 
     @pytest.mark.asyncio
@@ -517,7 +514,7 @@ class TestCheckAndTrigger:
         task = _make_task("t1", schedule="*/5 * * * *")
         scheduler = _make_scheduler([task])
 
-        triggered = await self._run_check(scheduler, now)
+        triggered = await _run_check(scheduler, now)
         assert "t1" in triggered
         assert task.last_triggered == datetime.datetime(2024, 1, 1, 10, 35)
 
@@ -529,7 +526,7 @@ class TestCheckAndTrigger:
         task = _make_task("t1", schedule="*/5 * * * *")
         scheduler = _make_scheduler([task], max_missed_seconds=60)
 
-        triggered = await self._run_check(scheduler, now)
+        triggered = await _run_check(scheduler, now)
         assert "t1" not in triggered
 
     @pytest.mark.asyncio
@@ -539,7 +536,7 @@ class TestCheckAndTrigger:
         task = _make_task("t1", schedule="0 9 * * *")
         scheduler = _make_scheduler([task])
 
-        triggered = await self._run_check(scheduler, now)
+        triggered = await _run_check(scheduler, now)
         assert "t1" in triggered
         assert task.last_triggered == datetime.datetime(2024, 1, 1, 9, 0)
 
@@ -550,7 +547,7 @@ class TestCheckAndTrigger:
         task = _make_task("t1", schedule="0 9 * * *")
         scheduler = _make_scheduler([task])
 
-        triggered = await self._run_check(scheduler, now)
+        triggered = await _run_check(scheduler, now)
         assert "t1" not in triggered
 
     @pytest.mark.asyncio
@@ -562,7 +559,7 @@ class TestCheckAndTrigger:
         task = _make_task("t1", schedule="30 9 * * 1-5")
         scheduler = _make_scheduler([task])
 
-        triggered = await self._run_check(scheduler, now)
+        triggered = await _run_check(scheduler, now)
         assert "t1" in triggered
         assert task.last_triggered == dt.datetime(2024, 1, 1, 9, 30)
 
@@ -575,7 +572,7 @@ class TestCheckAndTrigger:
         task = _make_task("t1", schedule="30 9 * * 1-5")
         scheduler = _make_scheduler([task])
 
-        triggered = await self._run_check(scheduler, now)
+        triggered = await _run_check(scheduler, now)
         assert "t1" not in triggered
 
     @pytest.mark.asyncio
@@ -586,7 +583,7 @@ class TestCheckAndTrigger:
         task = _make_task("t1", schedule="30 * * * *")
         scheduler = _make_scheduler([task], max_missed_seconds=120)
 
-        triggered = await self._run_check(scheduler, now)
+        triggered = await _run_check(scheduler, now)
         assert "t1" in triggered
         assert task.last_triggered == datetime.datetime(2024, 1, 1, 10, 30)
 
@@ -598,7 +595,7 @@ class TestCheckAndTrigger:
         task = _make_task("t1", schedule="30 * * * *")
         scheduler = _make_scheduler([task], max_missed_seconds=30)
 
-        triggered = await self._run_check(scheduler, now)
+        triggered = await _run_check(scheduler, now)
         assert "t1" not in triggered
         assert task.last_triggered is None
 
@@ -610,7 +607,7 @@ class TestCheckAndTrigger:
         task = _make_task("t1", schedule="30 * * * *")
         scheduler = _make_scheduler([task], max_missed_seconds=300)
 
-        triggered = await self._run_check(scheduler, now)
+        triggered = await _run_check(scheduler, now)
         assert "t1" not in triggered
         assert task.last_triggered is None
 
@@ -622,7 +619,7 @@ class TestCheckAndTrigger:
         t2 = _make_task("t2", schedule="0 10 * * *")
         scheduler = _make_scheduler([t1, t2], max_missed_seconds=3600)
 
-        triggered = await self._run_check(scheduler, now)
+        triggered = await _run_check(scheduler, now)
         assert "t1" in triggered   # 10:30
         assert "t2" in triggered   # 10:00
         assert t1.last_triggered == datetime.datetime(2024, 1, 1, 10, 30)
@@ -632,21 +629,6 @@ class TestCheckAndTrigger:
 class TestCheckAndTriggerMidnight:
     """午夜跨天场景"""
 
-    @staticmethod
-    async def _run_check(scheduler, now_dt):
-        triggered = set()
-
-        async def fake_enqueue(task):
-            triggered.add(task.id)
-
-        original_enqueue = scheduler._enqueue_message
-        scheduler._enqueue_message = fake_enqueue
-
-        await scheduler._check_and_trigger(_now=now_dt)
-
-        scheduler._enqueue_message = original_enqueue
-        return triggered
-
     @pytest.mark.asyncio
     async def test_midnight_daily_task(self):
         """跨午夜，每日 0:0 任务在 0:01 触发"""
@@ -655,28 +637,13 @@ class TestCheckAndTriggerMidnight:
                           last_triggered=datetime.datetime(2024, 1, 1, 0, 0))
         scheduler = _make_scheduler([task])
 
-        triggered = await self._run_check(scheduler, now)
+        triggered = await _run_check(scheduler, now)
         assert "t1" in triggered
         assert task.last_triggered == datetime.datetime(2024, 1, 2, 0, 0)
 
 
 class TestCheckAndTriggerSkipAdvancesState:
     """跳过积压事件时必须推进 last_triggered，避免每 60s 重复扫描"""
-
-    @staticmethod
-    async def _run_check(scheduler, now_dt):
-        triggered = set()
-
-        async def fake_enqueue(task):
-            triggered.add(task.id)
-
-        original_enqueue = scheduler._enqueue_message
-        scheduler._enqueue_message = fake_enqueue
-
-        await scheduler._check_and_trigger(_now=now_dt)
-
-        scheduler._enqueue_message = original_enqueue
-        return triggered
 
     @pytest.mark.asyncio
     async def test_skip_advances_last_triggered(self):
@@ -687,7 +654,7 @@ class TestCheckAndTriggerSkipAdvancesState:
         task = _make_task("t1", schedule="0 0 * * *", last_triggered=last)
         scheduler = _make_scheduler([task], max_missed_seconds=30)
 
-        triggered = await self._run_check(scheduler, now)
+        triggered = await _run_check(scheduler, now)
         assert "t1" not in triggered
         assert task.last_triggered is not None
         assert task.last_triggered >= datetime.datetime(2024, 1, 3, 0, 0)
@@ -700,12 +667,12 @@ class TestCheckAndTriggerSkipAdvancesState:
         task = _make_task("t1", schedule="0 0 * * *", last_triggered=last)
         scheduler = _make_scheduler([task], max_missed_seconds=30)
 
-        triggered1 = await self._run_check(scheduler, now)
+        triggered1 = await _run_check(scheduler, now)
         assert "t1" not in triggered1
         first_lt = task.last_triggered
         assert first_lt is not None
 
-        triggered2 = await self._run_check(scheduler, now)
+        triggered2 = await _run_check(scheduler, now)
         assert "t1" not in triggered2
         assert task.last_triggered == first_lt
 
@@ -717,12 +684,12 @@ class TestCheckAndTriggerSkipAdvancesState:
         task = _make_task("t1", schedule="0 0 * * *", last_triggered=last)
         scheduler = _make_scheduler([task], max_missed_seconds=300)
 
-        triggered1 = await self._run_check(scheduler, now1)
+        triggered1 = await _run_check(scheduler, now1)
         assert "t1" in triggered1  # Jan 3 midnight 60s 内, 在 300s 窗口内触发
         assert task.last_triggered == datetime.datetime(2024, 1, 3, 0, 0)
 
         now2 = datetime.datetime(2024, 1, 4, 0, 1, 0)
-        triggered2 = await self._run_check(scheduler, now2)
+        triggered2 = await _run_check(scheduler, now2)
         assert "t1" in triggered2
         assert task.last_triggered == datetime.datetime(2024, 1, 4, 0, 0)
 
@@ -823,3 +790,270 @@ class TestCronSchedulerInit:
         from gateway.cron_scheduler import CronScheduler
         sched = CronScheduler(max_missed_seconds=60)
         assert sched._max_missed_seconds == 60
+
+
+# ============================================================
+# 磁盘合并保护测试 — 验证外部写入不会被 save_tasks 覆盖
+# ============================================================
+
+
+def _make_bare_scheduler(tmp_path, tasks=None):
+    """创建一个挂载到临时目录的 CronScheduler，不启动事件循环"""
+    from gateway.cron_scheduler import CronScheduler
+    sched = CronScheduler.__new__(CronScheduler)
+    sched._task_file = tmp_path / "tasks.json"
+    sched._tasks = {}
+    sched._running = False
+    sched._runner_task = None
+    sched._queues = {}
+    sched._processing = {}
+    sched._push_callback = None
+    sched._max_missed_seconds = 300
+    if tasks:
+        for t in tasks:
+            sched._tasks[t.id] = t
+    return sched
+
+
+def _write_tasks_file(tmp_path, tasks_list):
+    """向临时目录写入 tasks.json"""
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    tasks_file = tmp_path / "tasks.json"
+    tasks_file.write_text(json.dumps(tasks_list, indent=2))
+
+
+class TestMergeDiskTasks:
+    """测试 _merge_disk_tasks — 从磁盘同步外部新增任务"""
+
+    def test_adds_new_tasks_from_disk(self, tmp_path):
+        """磁盘有 2 个任务，内存只有 1 个 → 合并后内存应有 2 个"""
+        _write_tasks_file(tmp_path, [
+            {"id": "t1", "name": "task1", "schedule": "0 9 * * *", "enabled": True},
+            {"id": "t2", "name": "task2", "schedule": "30 * * * *", "enabled": True},
+        ])
+        t1 = _make_task("t1", schedule="0 9 * * *")
+        sched = _make_bare_scheduler(tmp_path, [t1])
+
+        sched._merge_disk_tasks()
+
+        assert "t1" in sched._tasks
+        assert "t2" in sched._tasks
+        assert sched._tasks["t2"].name == "task2"
+        assert sched._tasks["t2"].schedule == "30 * * * *"
+
+    def test_does_not_overwrite_existing(self, tmp_path):
+        """内存中的任务（含 last_triggered）不会被磁盘版本覆盖"""
+        import datetime as dt
+        _write_tasks_file(tmp_path, [
+            {"id": "t1", "name": "disk_version", "schedule": "0 9 * * *", "enabled": True},
+        ])
+        lt = dt.datetime(2024, 1, 1, 10, 30)
+        t1 = _make_task("t1", schedule="30 * * * *", last_triggered=lt)
+        t1.name = "memory_version"
+        sched = _make_bare_scheduler(tmp_path, [t1])
+
+        sched._merge_disk_tasks()
+
+        assert sched._tasks["t1"].name == "memory_version"
+        assert sched._tasks["t1"].schedule == "30 * * * *"
+        assert sched._tasks["t1"].last_triggered == lt
+
+    def test_empty_disk_does_nothing(self, tmp_path):
+        """磁盘文件为空 JSON 数组 → 不影响内存"""
+        _write_tasks_file(tmp_path, [])
+        t1 = _make_task("t1", schedule="0 9 * * *")
+        sched = _make_bare_scheduler(tmp_path, [t1])
+
+        sched._merge_disk_tasks()
+
+        assert len(sched._tasks) == 1
+        assert "t1" in sched._tasks
+
+    def test_no_file_does_nothing(self, tmp_path):
+        """磁盘文件不存在 → 不影响内存"""
+        t1 = _make_task("t1", schedule="0 9 * * *")
+        sched = _make_bare_scheduler(tmp_path, [t1])
+
+        sched._merge_disk_tasks()
+
+        assert len(sched._tasks) == 1
+        assert "t1" in sched._tasks
+
+    def test_corrupt_json_does_not_crash(self, tmp_path):
+        """磁盘 JSON 损坏 → 静默跳过，不影响内存"""
+        tasks_file = tmp_path / "tasks.json"
+        tmp_path.mkdir(parents=True, exist_ok=True)
+        tasks_file.write_text("{corrupt")
+        t1 = _make_task("t1", schedule="0 9 * * *")
+        sched = _make_bare_scheduler(tmp_path, [t1])
+
+        sched._merge_disk_tasks()
+
+        assert len(sched._tasks) == 1
+        assert "t1" in sched._tasks
+
+
+class TestSaveTasksPreservesExternal:
+    """测试 save_tasks() 不会覆盖磁盘上外部新增的任务"""
+
+    def test_preserves_externally_added_task(self, tmp_path):
+        """内存有[t1, t2]，磁盘有[t1, t2, t3(AI新增)] → save 后磁盘保留 t3"""
+        _write_tasks_file(tmp_path, [
+            {"id": "t1", "name": "task1", "schedule": "0 9 * * *"},
+            {"id": "t2", "name": "task2", "schedule": "30 * * * *"},
+            {"id": "t3", "name": "ai_added", "schedule": "0 6 * * *",
+             "description": "AI agent 新增", "agent_id": "main_agent",
+             "session_id": "sess1", "enabled": True},
+        ])
+        t1 = _make_task("t1", schedule="0 9 * * *")
+        t2 = _make_task("t2", schedule="30 * * * *")
+        sched = _make_bare_scheduler(tmp_path, [t1, t2])
+
+        sched.save_tasks()
+
+        data = json.loads((tmp_path / "tasks.json").read_text())
+        ids = [t["id"] for t in data]
+        assert "t1" in ids
+        assert "t2" in ids
+        assert "t3" in ids
+        t3 = next(t for t in data if t["id"] == "t3")
+        assert t3["name"] == "ai_added"
+        assert t3["schedule"] == "0 6 * * *"
+
+    def test_preserves_last_triggered_on_save(self, tmp_path):
+        """内存中的 last_triggered 更新后保存，外部任务不被影响"""
+        import datetime as dt
+        lt = dt.datetime(2024, 6, 1, 9, 0)
+        _write_tasks_file(tmp_path, [
+            {"id": "t1", "name": "task1", "schedule": "0 9 * * *",
+             "last_triggered": None},
+            {"id": "t2", "name": "external_new", "schedule": "0 12 * * *",
+             "enabled": True},
+        ])
+        t1 = _make_task("t1", schedule="0 9 * * *", last_triggered=lt)
+        sched = _make_bare_scheduler(tmp_path, [t1])
+
+        sched.save_tasks()
+
+        data = json.loads((tmp_path / "tasks.json").read_text())
+        t1_data = next(t for t in data if t["id"] == "t1")
+        assert t1_data["last_triggered"] == "2024-06-01T09:00:00"
+        t2_data = next(t for t in data if t["id"] == "t2")
+        assert t2_data["name"] == "external_new"
+
+
+class TestCheckAndTriggerMergesExternal:
+    """测试 _check_and_trigger 自动同步外部新增任务"""
+
+    @pytest.mark.asyncio
+    async def test_picks_up_external_task(self, tmp_path):
+        """scheduler 内存有 t1，磁盘新写入 t2 → 下一轮检查自动同步 t2"""
+        _write_tasks_file(tmp_path, [
+            {"id": "t1", "name": "task1", "schedule": "30 * * * *", "enabled": True},
+            {"id": "t2", "name": "external", "schedule": "30 * * * *", "enabled": True,
+             "agent_id": "main_agent", "session_id": "default", "description": "ext"},
+        ])
+        t1 = _make_task("t1", schedule="30 * * * *")
+        sched = _make_bare_scheduler(tmp_path, [t1])
+
+        assert "t2" not in sched._tasks
+
+        now = datetime.datetime(2024, 1, 1, 10, 31, 0)
+        triggered = await _run_check(sched, now)
+
+        assert "t2" in sched._tasks
+        assert "t1" in triggered
+
+    @pytest.mark.asyncio
+    async def test_external_task_can_trigger(self, tmp_path):
+        """外部新增的 t2 在同步后能正常被触发"""
+        now = datetime.datetime(2024, 1, 1, 10, 31, 0)
+        _write_tasks_file(tmp_path, [
+            {"id": "t1", "name": "task1", "schedule": "30 * * * *", "enabled": True},
+            {"id": "t2", "name": "external", "schedule": "0 10 * * *", "enabled": True,
+             "agent_id": "main_agent", "session_id": "default", "description": "ext"},
+        ])
+        t1 = _make_task("t1", schedule="30 * * * *")
+        sched = _make_bare_scheduler(tmp_path, [t1])
+        sched._max_missed_seconds = 3600
+
+        triggered = await _run_check(sched, now)
+
+        assert "t2" in triggered
+        assert sched._tasks["t2"].last_triggered == datetime.datetime(2024, 1, 1, 10, 0)
+
+    @pytest.mark.asyncio
+    async def test_external_disabled_task_not_triggered(self, tmp_path):
+        """外部新增但 disabled 的任务不触发"""
+        now = datetime.datetime(2024, 1, 1, 10, 31, 0)
+        _write_tasks_file(tmp_path, [
+            {"id": "t1", "name": "task1", "schedule": "30 * * * *", "enabled": True},
+            {"id": "t2", "name": "disabled_ext", "schedule": "30 * * * *", "enabled": False,
+             "agent_id": "main_agent", "session_id": "default", "description": "ext"},
+        ])
+        t1 = _make_task("t1", schedule="30 * * * *")
+        sched = _make_bare_scheduler(tmp_path, [t1])
+
+        triggered = await _run_check(sched, now)
+
+        assert "t2" in sched._tasks
+        assert "t2" not in triggered
+
+
+class TestEndToEndExternalWriteSurvival:
+    """端到端：模拟 AI 外部写入 → scheduler 不丢数据"""
+
+    @pytest.mark.asyncio
+    async def test_ai_writes_then_scheduler_saves_preserves(self, tmp_path):
+        """模拟完整场景：
+        1. scheduler 启动，加载 [t1, t2]
+        2. AI 外部写入 tasks.json，新增 t3
+        3. scheduler _check_and_trigger 运行，t1 触发 → save_tasks
+        4. 验证 t3 未被覆盖
+        """
+        import datetime as dt
+
+        _write_tasks_file(tmp_path, [
+            {"id": "t1", "name": "task1", "schedule": "30 * * * *", "enabled": True},
+            {"id": "t2", "name": "task2", "schedule": "0 9 * * *", "enabled": True},
+        ])
+        t1 = _make_task("t1", schedule="30 * * * *")
+        t2 = _make_task("t2", schedule="0 9 * * *")
+        sched = _make_bare_scheduler(tmp_path, [t1, t2])
+
+        now = dt.datetime(2024, 1, 1, 11, 31, 0)
+
+        ai_task = {
+            "id": "t3",
+            "name": "hn_agent_daily",
+            "schedule": "0 6 * * *",
+            "description": "Hacker News 智能体日报",
+            "agent_id": "main_agent",
+            "session_id": "sess_ai",
+            "enabled": True,
+        }
+
+        triggered = set()
+
+        async def fake_enqueue(task):
+            triggered.add(task.id)
+            current = json.loads((tmp_path / "tasks.json").read_text())
+            current.append(ai_task)
+            (tmp_path / "tasks.json").write_text(json.dumps(current, indent=2))
+
+        original = sched._enqueue_message
+        sched._enqueue_message = fake_enqueue
+
+        await sched._check_and_trigger(_now=now)
+
+        sched._enqueue_message = original
+
+        data = json.loads((tmp_path / "tasks.json").read_text())
+        ids = {t["id"] for t in data}
+        assert "t1" in ids
+        assert "t2" in ids
+        assert "t3" in ids
+
+        t3_data = next(t for t in data if t["id"] == "t3")
+        assert t3_data["name"] == "hn_agent_daily"
+        assert t3_data["schedule"] == "0 6 * * *"

@@ -1,0 +1,20 @@
+{
+  "name": "deepseek-chat",
+  "description": "FastClaw 主智能体 - Updated",
+  "llm": {
+    "gateway": "openai",
+    "provider": "deepseek",
+    "model": "deepseek-v4-flash",
+    "api_key": "",
+    "base_url": "https://api.deepseek.com/v1",
+    "multimodal": false
+  },
+  "context": {
+    "max_tokens": 100000,
+    "unload_threshold_tokens": 90000
+  },
+  "timeout": 300,
+  "extra_workspaces": [],
+  "created_at": 1774620461,
+  "updated_at": 1778887142
+}

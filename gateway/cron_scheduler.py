@@ -101,9 +101,32 @@ class CronScheduler:
             print(f"Failed to load cron tasks: {e}")
             self._tasks = {}
 
+    def _merge_disk_tasks(self):
+        """从磁盘同步外部新增的任务到内存，防止被内存旧数据覆盖"""
+        if not self._task_file.exists():
+            return
+        try:
+            disk_data = json.loads(self._task_file.read_text())
+            for t in disk_data:
+                tid = t.get("id")
+                if tid and tid not in self._tasks:
+                    task = CronTask(
+                        id=tid,
+                        name=t.get("name", ""),
+                        schedule=t.get("schedule", ""),
+                        description=t.get("description", ""),
+                        agent_id=t.get("agent_id", "main_agent"),
+                        session_id=t.get("session_id", "default"),
+                        enabled=t.get("enabled", True),
+                    )
+                    self._tasks[tid] = task
+        except Exception:
+            pass
+
     def save_tasks(self):
         """保存定时任务到文件"""
         self._task_file.parent.mkdir(parents=True, exist_ok=True)
+        self._merge_disk_tasks()
         tasks_data = []
         for task in self._tasks.values():
             tasks_data.append(
@@ -217,6 +240,8 @@ class CronScheduler:
         """
         now = _now or datetime.now()
         saved = False
+
+        self._merge_disk_tasks()
 
         for task in self._tasks.values():
             if not task.enabled:

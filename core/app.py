@@ -30,6 +30,7 @@ if _IS_PACKAGE_MODE:
         get_agents_dir,
         get_settings_file,
         get_skills_dir,
+        get_session_store,
     )
 else:
     from core.config import (
@@ -38,6 +39,7 @@ else:
         get_agents_dir,
         get_settings_file,
         get_skills_dir,
+        get_session_store,
     )
 
 logger = logging.getLogger(__name__)
@@ -114,15 +116,12 @@ def save_messages_to_jsonl(session_id: str, messages: list) -> None:
                 f.write(json.dumps(msg, ensure_ascii=False) + "\n")
 
     if messages and messages[0].get("role") == "user":
-        sessions_file = get_sessions_dir() / "sessions.json"
-        try:
-            sessions = json.loads(sessions_file.read_text())
-            if session_id in sessions and not sessions[session_id].get("name"):
-                first_text = messages[0]["content"][:50]
-                sessions[session_id]["name"] = first_text
-                sessions_file.write_text(json.dumps(sessions, indent=2, ensure_ascii=False))
-        except (FileNotFoundError, json.JSONDecodeError, KeyError):
-            pass
+        store = get_session_store()
+        sessions = store.load()
+        if session_id in sessions and not sessions[session_id].get("name"):
+            first_text = messages[0]["content"][:50]
+            sessions[session_id]["name"] = first_text
+            store.save(sessions)
 
 
 async def _save_messages_async(session_id: str, messages: list) -> None:

@@ -1,0 +1,5 @@
+{
+  "default_agent_id": "main_agent",
+  "run_shell_timeout": 60,
+  "run_skills_timeout": 60
+}

@@ -1,0 +1,17 @@
+{
+  "name": "main_agent",
+  "description": "Default agent (DeepSeek V4 Flash)",
+  "llm": {
+    "gateway": "openai",
+    "provider": "deepseek",
+    "model": "deepseek-v4-flash",
+    "api_key": "",
+    "base_url": "https://api.deepseek.com/v1",
+    "multimodal": false
+  },
+  "context": {
+    "max_tokens": 80000,
+    "unload_threshold_tokens": 80000
+  },
+  "extra_workspaces": []
+}

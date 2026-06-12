@@ -1,145 +1,91 @@
-"""渠道测试"""
+"""渠道适配器测试"""
 
-import pytest
-from abc import ABC, abstractmethod
+
+class _ConcreteAdapter:
+    """用 ChannelAdapter 的接口定义的测试适配器"""
+
+    def __init__(self, name="test"):
+        self.name = name
+        self.enabled = False
+        self.config = {}
+
+    async def connect(self):
+        pass
+
+    async def disconnect(self):
+        pass
+
+    async def send_message(self, message, session_id=None):
+        return {"code": 0}
+
+    async def on_message(self, message):
+        pass
+
+    async def enable(self):
+        self.enabled = True
+        await self.connect()
+
+    async def disable(self):
+        self.enabled = False
+        await self.disconnect()
+
+    def load_config(self, config):
+        self.config = config
+
+    def get_config(self, key, default=None):
+        return self.config.get(key, default)
 
 
 class TestChannelAdapter:
-    """渠道适配器基类测试"""
+    """渠道适配器基础行为测试 — 与 ChannelAdapter 接口一致"""
 
-    def test_channel_adapter_has_name(self):
-        """测试渠道适配器有名称"""
+    def test_adapter_has_name_and_disabled_by_default(self):
+        adapter = _ConcreteAdapter("test_channel")
+        assert adapter.name == "test_channel"
+        assert adapter.enabled is False
 
-        class TestChannel(ABC):
-            def __init__(self, name: str):
-                self.name = name
-                self.enabled = False
+    def test_adapter_config_load_and_get(self):
+        adapter = _ConcreteAdapter()
+        adapter.load_config({"app_id": "123", "secret": "abc"})
+        assert adapter.get_config("app_id") == "123"
+        assert adapter.get_config("secret") == "abc"
+        assert adapter.get_config("missing", "fallback") == "fallback"
 
-        channel = TestChannel("test_channel")
-        assert channel.name == "test_channel"
-        assert channel.enabled is False
+    def test_adapter_enable_and_disable(self):
+        adapter = _ConcreteAdapter()
+        import asyncio
+        asyncio.run(adapter.enable())
+        assert adapter.enabled is True
+        asyncio.run(adapter.disable())
+        assert adapter.enabled is False
 
-    def test_channel_adapter_enable(self):
-        """测试渠道启用"""
-
-        class TestChannel(ABC):
-            def __init__(self, name: str):
-                self.name = name
-                self.enabled = False
-
-            async def enable(self):
-                self.enabled = True
-
-        channel = TestChannel("test")
-        assert channel.enabled is False
-
-    def test_channel_adapter_disable(self):
-        """测试渠道禁用"""
-
-        class TestChannel(ABC):
-            def __init__(self, name: str):
-                self.name = name
-                self.enabled = True
-
-            async def disable(self):
-                self.enabled = False
-
-        channel = TestChannel("test")
-        assert channel.enabled is True
+    def test_adapter_send_message_returns_ok(self):
+        adapter = _ConcreteAdapter()
+        import asyncio
+        result = asyncio.run(adapter.send_message("hello", session_id="s1"))
+        assert result["code"] == 0
 
 
-class TestFeishuChannel:
-    """飞书渠道测试"""
+class TestChannelConfigs:
+    """渠道配置契约测试"""
 
-    def test_feishu_channel_config(self):
-        """测试飞书渠道配置"""
-        config = {
-            "app_id": "test_app_id",
-            "app_secret": "test_secret",
-        }
+    def test_feishu_config_has_required_keys(self):
+        config = {"app_id": "test_id", "app_secret": "test_secret", "name": "feishu"}
+        assert config["app_id"] == "test_id"
+        assert config["app_secret"] == "test_secret"
 
-        assert "app_id" in config
-        assert "app_secret" in config
+    def test_imessage_config_disabled_default(self):
+        config = {"name": "imessage", "enabled": False}
+        assert config["enabled"] is False
 
-    def test_feishu_channel_message_format(self):
-        """测试飞书消息格式"""
-        message = {
-            "session_id": "feishu_user_123",
-            "text": "Hello from Feishu",
-        }
+    def test_telegram_config_has_token(self):
+        config = {"bot_token": "test_token", "name": "telegram"}
+        assert config["bot_token"] == "test_token"
 
-        assert "text" in message
-        assert "session_id" in message
-
-
-class TestIMessageChannel:
-    """iMessage 渠道测试"""
-
-    def test_imessage_channel_config(self):
-        """测试 iMessage 渠道配置"""
-        config = {
-            "enabled": False,
-        }
-
-        assert "enabled" in config
-
-    def test_imessage_recipient(self):
-        """测试 iMessage 收件人"""
-        recipient = "test@icloud.com"
-        assert "@" in recipient
-
-
-class TestTelegramChannel:
-    """Telegram 渠道测试"""
-
-    def test_telegram_channel_config(self):
-        """测试 Telegram 渠道配置"""
-        config = {
-            "bot_token": "test_token",
-        }
-
-        assert "bot_token" in config
-
-    def test_telegram_chat_id(self):
-        """测试 Telegram chat_id"""
+    def test_telegram_chat_id_is_numeric(self):
         chat_id = "123456789"
         assert chat_id.isdigit()
 
-
-class TestChannelRegistration:
-    """渠道注册测试"""
-
-    def test_channel_register(self):
-        """测试渠道注册"""
-        channels = {}
-
-        def register(name, channel_class):
-            channels[name] = channel_class
-
-        class DummyChannel:
-            pass
-
-        register("test", DummyChannel)
-
-        assert "test" in channels
-
-    def test_channel_enable_disable(self):
-        """测试渠道启用和禁用"""
-        state = {"feishu": False, "imessage": False}
-
-        state["feishu"] = True
-        assert state["feishu"] is True
-
-        state["feishu"] = False
-        assert state["feishu"] is False
-
-
-class TestChannelNotFound:
-    """渠道不存在测试"""
-
-    def test_get_nonexistent_channel(self):
-        """测试获取不存在的渠道"""
-        channels = {}
-
-        result = channels.get("nonexistent")
-        assert result is None
+    def test_imessage_recipient_has_at(self):
+        recipient = "test@icloud.com"
+        assert "@" in recipient

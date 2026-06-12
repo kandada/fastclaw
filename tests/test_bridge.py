@@ -6,6 +6,8 @@ import uuid
 import sys
 from pathlib import Path
 
+pytestmark = pytest.mark.slow
+
 sys.path.insert(0, str(Path(__file__).parent.parent / "vendor"))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -18,27 +20,21 @@ class TestBridgeAPI:
 
     @pytest.mark.asyncio
     async def test_api_start(self, shared_api):
-        """测试 API 启动"""
         assert shared_api is not None
         assert shared_api.app is not None
 
     @pytest.mark.asyncio
     async def test_push_event(self, shared_api, unique_session_id):
-        """测试推送事件"""
         event = Event("user.message", {"text": "hello"}, unique_session_id)
         session = await shared_api.push_event(unique_session_id, event)
-
         assert session is not None
         assert session.session_id == unique_session_id
-
         cleanup_test_session(unique_session_id)
 
     @pytest.mark.asyncio
     async def test_stream_events(self, shared_api, unique_session_id):
-        """测试流式获取事件"""
         event = Event("user.message", {"text": "hello"}, unique_session_id)
         await shared_api.push_event(unique_session_id, event)
-
         await asyncio.sleep(0.5)
 
         events = []
@@ -48,40 +44,31 @@ class TestBridgeAPI:
                 break
 
         assert len(events) > 0
-
         cleanup_test_session(unique_session_id)
 
     @pytest.mark.asyncio
     async def test_get_state(self, shared_api, unique_session_id):
-        """测试获取状态"""
         event = Event("user.message", {"text": "hello"}, unique_session_id)
         await shared_api.push_event(unique_session_id, event)
-
         await asyncio.sleep(0.5)
 
         state = shared_api.get_state(unique_session_id)
         assert state is not None
         assert "messages" in state
-
         cleanup_test_session(unique_session_id)
 
     @pytest.mark.asyncio
     async def test_get_session(self, shared_api, unique_session_id):
-        """测试获取会话"""
         event = Event("user.message", {"text": "hello"}, unique_session_id)
-        session = await shared_api.push_event(unique_session_id, event)
-
+        await shared_api.push_event(unique_session_id, event)
         retrieved = shared_api.get_session(unique_session_id)
         assert retrieved is not None
         assert retrieved.session_id == unique_session_id
-
         cleanup_test_session(unique_session_id)
 
     @pytest.mark.asyncio
     async def test_list_sessions(self, shared_api, main_agent_id):
-        """测试列出所有会话"""
         session_ids = [f"list_test_{i}_{uuid.uuid4().hex[:8]}" for i in range(2)]
-
         for i, session_id in enumerate(session_ids):
             event = Event("user.message", {"text": f"hello {i}"}, session_id)
             await shared_api.push_event(session_id, event)
@@ -94,22 +81,17 @@ class TestBridgeAPI:
 
     @pytest.mark.asyncio
     async def test_delete_session(self, shared_api, unique_session_id):
-        """测试删除会话"""
         event = Event("user.message", {"text": "hello"}, unique_session_id)
         await shared_api.push_event(unique_session_id, event)
-
         await asyncio.sleep(0.3)
 
         await shared_api.delete_session(unique_session_id)
-
         retrieved = shared_api.get_session(unique_session_id)
         assert retrieved is None
 
     @pytest.mark.asyncio
     async def test_repeated_push_event(self, shared_api, main_agent_id):
-        """测试重复推送事件"""
         session_ids = [f"repeat_test_{i}_{uuid.uuid4().hex[:8]}" for i in range(3)]
-
         for i, session_id in enumerate(session_ids):
             event = Event("user.message", {"text": f"hello {i}"}, session_id)
             session = await shared_api.push_event(session_id, event)
@@ -124,10 +106,8 @@ class TestBridgeToolCall:
 
     @pytest.mark.asyncio
     async def test_run_shell_tool(self, shared_api, unique_session_id):
-        """测试 run_shell 工具调用"""
         event = Event("user.message", {"text": "run ls command"}, unique_session_id)
         await shared_api.push_event(unique_session_id, event)
-
         await asyncio.sleep(3)
 
         state = shared_api.get_state(unique_session_id)
@@ -145,7 +125,6 @@ class TestBridgeStreaming:
 
     @pytest.mark.asyncio
     async def test_stream_chunks_received(self, shared_api, unique_session_id):
-        """测试接收到流式块"""
         event = Event("user.message", {"text": "say hello"}, unique_session_id)
         await shared_api.push_event(unique_session_id, event)
 
@@ -156,11 +135,11 @@ class TestBridgeStreaming:
             elif ev.type in ("stream.end", "error"):
                 break
 
+        assert len(chunks) > 0, "Should receive streaming chunks"
         cleanup_test_session(unique_session_id)
 
     @pytest.mark.asyncio
     async def test_stream_end_received(self, shared_api, unique_session_id):
-        """测试接收到流结束事件"""
         event = Event("user.message", {"text": "hello"}, unique_session_id)
         await shared_api.push_event(unique_session_id, event)
 
@@ -170,4 +149,5 @@ class TestBridgeStreaming:
                 end_received = True
                 break
 
+        assert end_received, "Should receive stream.end event"
         cleanup_test_session(unique_session_id)

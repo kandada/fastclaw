@@ -24,6 +24,7 @@ if _IS_PACKAGE_MODE:
         get_settings_file,
         get_agents_dir,
         get_cron_dir,
+        get_session_store,
     )
 else:
     from gateway.event_bus import EventBus, get_event_bus, set_event_bus
@@ -33,11 +34,12 @@ else:
         get_settings_file,
         get_agents_dir,
         get_cron_dir,
+        get_session_store,
     )
 
 router = APIRouter()
 
-SESSION_DB_FILE = get_sessions_dir() / "sessions.json"
+SESSION_DB_FILE = get_session_store().db_file
 SETTINGS_FILE = get_settings_file()
 WEBUI_DIR = Path(__file__).parent.parent / "webui"
 
@@ -52,23 +54,15 @@ class SessionUpdate(BaseModel):
 
 
 def ensure_sessions_db():
-    """确保 sessions 数据库文件存在"""
-    SESSION_DB_FILE.parent.mkdir(parents=True, exist_ok=True)
-    if not SESSION_DB_FILE.exists():
-        SESSION_DB_FILE.write_text("{}")
+    get_session_store().ensure_db()
 
 
 def load_sessions() -> dict:
-    """加载 sessions"""
-    ensure_sessions_db()
-    try:
-        return json.loads(SESSION_DB_FILE.read_text())
-    except:
-        time.sleep(0.05)
-        try:
-            return json.loads(SESSION_DB_FILE.read_text())
-        except:
-            return {}
+    return get_session_store().load()
+
+
+def save_sessions(sessions: dict):
+    get_session_store().save(sessions)
 
 
 def load_settings() -> dict:
@@ -79,12 +73,6 @@ def load_settings() -> dict:
         except:
             pass
     return {"default_agent_id": "main_agent"}
-
-
-def save_sessions(sessions: dict):
-    """保存 sessions"""
-    ensure_sessions_db()
-    SESSION_DB_FILE.write_text(json.dumps(sessions, indent=2, ensure_ascii=False))
 
 
 def _infer_channel(session_id: str) -> str:
@@ -584,20 +572,6 @@ _event_id_to_message_id: Dict[str, str] = {}
 
 # Per-session streaming state: {session_id: {message_id, content, thinking, role, timestamp}}
 _session_stream_state: Dict[str, dict] = {}
-
-# Per-session lock for stream consumption to prevent multiple SSE consumers from
-# competing for the same session's output_queue events.
-# Using per-session lock instead of a global lock allows different sessions to
-# stream concurrently while still preventing race conditions when multiple SSE
-# connections (e.g., multiple tabs) consume the same session's stream.
-_stream_consume_locks: Dict[str, asyncio.Lock] = {}
-
-
-async def get_stream_lock(session_id: str) -> asyncio.Lock:
-    """Get or create a per-session lock for stream consumption."""
-    if session_id not in _stream_consume_locks:
-        _stream_consume_locks[session_id] = asyncio.Lock()
-    return _stream_consume_locks[session_id]
 
 
 def _find_latest_webui_session(sessions: dict) -> str:

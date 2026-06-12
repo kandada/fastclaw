@@ -25,7 +25,6 @@ class MockStreamEventsAPI:
         if session_id not in self.sessions:
             self.sessions[session_id] = {"messages": []}
             self._event_queues[session_id] = asyncio.Queue()
-
         msg = event.payload.get("text", "")
         self.sessions[session_id]["messages"].append({"role": "user", "content": msg})
         return self.sessions[session_id]
@@ -34,7 +33,6 @@ class MockStreamEventsAPI:
         return self.sessions.get(session_id)
 
     async def stream_events(self, session_id):
-        """Simulate AI processing and streaming response with thinking and tools"""
         if self.include_thinking:
             yield Event(
                 type="stream.thinking",
@@ -63,7 +61,7 @@ class MockStreamEventsAPI:
             )
             await asyncio.sleep(0.02)
 
-        for i, chunk in enumerate(["这", "是", "测", "试", "响", "应"]):
+        for chunk in ["这", "是", "测", "试", "响", "应"]:
             yield Event(
                 type="stream.chunk",
                 payload={"delta": chunk},
@@ -87,9 +85,8 @@ async def mock_api():
 
 @pytest_asyncio.fixture
 async def feishu_adapter(mock_api):
-    from unittest.mock import AsyncMock, patch
+    from unittest.mock import AsyncMock
     from gateway.channels.feishu import FeishuAdapter
-    from gateway.channels import handlers
 
     adapter = FeishuAdapter()
     adapter._tenant_token_mgr.get_token = AsyncMock(return_value="mock_token")
@@ -101,8 +98,22 @@ async def feishu_adapter(mock_api):
         return {"code": 0}
 
     adapter.send_message = mock_send
-
     return adapter, mock_api, sent_messages
+
+
+def _patch_websocket_api(mock_api):
+    import gateway.router
+    original = getattr(gateway.router, "_websocket_api", None)
+    gateway.router._websocket_api = mock_api
+    return original
+
+
+def _restore_websocket_api(original):
+    import gateway.router
+    if original is not None:
+        gateway.router._websocket_api = original
+    elif hasattr(gateway.router, "_websocket_api"):
+        delattr(gateway.router, "_websocket_api")
 
 
 class TestChannelMessageHandler:
@@ -110,7 +121,6 @@ class TestChannelMessageHandler:
 
     @pytest.mark.asyncio
     async def test_handler_uses_stream_events_not_get_state(self, feishu_adapter):
-        """验证 handler 使用 stream_events 而不是 get_state"""
         adapter, mock_api, sent_messages = feishu_adapter
 
         original_get_state = mock_api.get_state
@@ -132,82 +142,64 @@ class TestChannelMessageHandler:
 
         mock_api.stream_events = tracked_stream
 
-        import gateway.router
+        original_ws = _patch_websocket_api(mock_api)
 
-        gateway.router._websocket_api = mock_api
+        try:
+            class MockSender:
+                class SenderId:
+                    open_id = "ou_test_stream"
+                sender_id = SenderId()
 
-        class MockSender:
-            class SenderId:
-                open_id = "ou_test_stream"
-
-            sender_id = SenderId()
-
-        class MockEvent:
-            message = type(
-                "obj",
-                (object,),
-                {
+            class MockEvent:
+                message = type("obj", (object,), {
                     "message_type": "text",
                     "content": '{"text":"测试消息"}',
-                },
-            )()
-            sender = MockSender()
+                })()
+                sender = MockSender()
 
-        class MockData:
-            event = MockEvent()
+            class MockData:
+                event = MockEvent()
 
-        await adapter._handle_feishu_message(MockData())
+            await adapter._handle_feishu_message(MockData())
+            await asyncio.sleep(0.5)
 
-        await asyncio.sleep(0.5)
-
-        assert len(mock_stream_events) > 0, "stream_events should be called"
-
-        stream_types = [ev.type for ev in mock_stream_events]
-        assert "stream.chunk" in stream_types or "stream.end" in stream_types
-
-        assert len(sent_messages) > 0, "Should send message"
-        assert sent_messages[0]["msg"] != "测试消息", (
-            "Reply should NOT be echo of input"
-        )
+            assert len(mock_stream_events) > 0, "stream_events should be called"
+            stream_types = [ev.type for ev in mock_stream_events]
+            assert "stream.chunk" in stream_types or "stream.end" in stream_types
+            assert len(sent_messages) > 0, "Should send message"
+            assert sent_messages[0]["msg"] != "测试消息", "Reply should NOT be echo of input"
+        finally:
+            _restore_websocket_api(original_ws)
 
     @pytest.mark.asyncio
     async def test_handler_accumulates_chunks(self, feishu_adapter):
-        """验证 handler 正确累积 stream.chunk"""
         adapter, mock_api, sent_messages = feishu_adapter
+        original_ws = _patch_websocket_api(mock_api)
 
-        import gateway.router
+        try:
+            class MockSender:
+                class SenderId:
+                    open_id = "ou_test_chunks"
+                sender_id = SenderId()
 
-        gateway.router._websocket_api = mock_api
-
-        class MockSender:
-            class SenderId:
-                open_id = "ou_test_chunks"
-
-            sender_id = SenderId()
-
-        class MockEvent:
-            message = type(
-                "obj",
-                (object,),
-                {
+            class MockEvent:
+                message = type("obj", (object,), {
                     "message_type": "text",
                     "content": '{"text":"你好"}',
-                },
-            )()
-            sender = MockSender()
+                })()
+                sender = MockSender()
 
-        class MockData:
-            event = MockEvent()
+            class MockData:
+                event = MockEvent()
 
-        await adapter._handle_feishu_message(MockData())
+            await adapter._handle_feishu_message(MockData())
+            await asyncio.sleep(0.5)
 
-        await asyncio.sleep(0.5)
-
-        if sent_messages:
-            reply = sent_messages[0]["msg"]
-            assert "测试" in reply or "响应" in reply, (
-                f"Reply should be AI response, got: {reply}"
-            )
+            if sent_messages:
+                reply = sent_messages[0]["msg"]
+                assert "测试" in reply or "响应" in reply, f"Reply should be AI response, got: {reply}"
+        finally:
+            _restore_websocket_api(original_ws)
 
 
 class TestFeishuMessageFlow:
@@ -215,69 +207,57 @@ class TestFeishuMessageFlow:
 
     @pytest.mark.asyncio
     async def test_text_message_extraction(self, feishu_adapter):
-        """测试文本消息正确提取"""
         adapter, mock_api, sent_messages = feishu_adapter
+        original_ws = _patch_websocket_api(mock_api)
 
-        import gateway.router
+        try:
+            class MockSender:
+                class SenderId:
+                    open_id = "ou_123"
+                sender_id = SenderId()
 
-        gateway.router._websocket_api = mock_api
-
-        class MockSender:
-            class SenderId:
-                open_id = "ou_123"
-
-            sender_id = SenderId()
-
-        class MockEvent:
-            message = type(
-                "obj",
-                (object,),
-                {
+            class MockEvent:
+                message = type("obj", (object,), {
                     "message_type": "text",
                     "content": '{"text":"飞书消息"}',
-                },
-            )()
-            sender = MockSender()
+                })()
+                sender = MockSender()
 
-        class MockData:
-            event = MockEvent()
+            class MockData:
+                event = MockEvent()
 
-        await adapter._handle_feishu_message(MockData())
-        await asyncio.sleep(0.3)
+            await adapter._handle_feishu_message(MockData())
+            await asyncio.sleep(0.3)
+        finally:
+            _restore_websocket_api(original_ws)
 
     @pytest.mark.asyncio
     async def test_session_is_sender_open_id(self, feishu_adapter):
-        """验证 session_id 使用 sender 的 open_id"""
         adapter, mock_api, sent_messages = feishu_adapter
+        original_ws = _patch_websocket_api(mock_api)
 
-        import gateway.router
+        try:
+            sender_open_id = "ou_sender_abc123"
 
-        gateway.router._websocket_api = mock_api
+            class MockSender:
+                class SenderId:
+                    open_id = sender_open_id
+                sender_id = SenderId()
 
-        sender_open_id = "ou_sender_abc123"
-
-        class MockSender:
-            class SenderId:
-                open_id = sender_open_id
-
-            sender_id = SenderId()
-
-        class MockEvent:
-            message = type(
-                "obj",
-                (object,),
-                {
+            class MockEvent:
+                message = type("obj", (object,), {
                     "message_type": "text",
                     "content": '{"text":"test"}',
-                },
-            )()
-            sender = MockSender()
+                })()
+                sender = MockSender()
 
-        class MockData:
-            event = MockEvent()
+            class MockData:
+                event = MockEvent()
 
-        await adapter._handle_feishu_message(MockData())
-        await asyncio.sleep(0.3)
+            await adapter._handle_feishu_message(MockData())
+            await asyncio.sleep(0.3)
+        finally:
+            _restore_websocket_api(original_ws)
 
 
 class TestChannelHandlerSharedLogic:
@@ -285,18 +265,14 @@ class TestChannelHandlerSharedLogic:
 
     @pytest.mark.asyncio
     async def test_handler_is_importable(self):
-        """验证 handlers 模块可以正常导入"""
         from gateway.channels import handlers
-
         assert hasattr(handlers, "handle_channel_message")
         assert asyncio.iscoroutinefunction(handlers.handle_channel_message)
 
     @pytest.mark.asyncio
     async def test_handler_function_signature(self):
-        """验证 handler 函数签名正确"""
         from gateway.channels.handlers import handle_channel_message
         import inspect
-
         sig = inspect.signature(handle_channel_message)
         params = list(sig.parameters.keys())
         assert "channel_name" in params
@@ -313,7 +289,6 @@ class TestThinkingAndToolInfo:
 
     @pytest.mark.asyncio
     async def test_thinking_content_included_in_response(self):
-        """验证思考内容被包含在回复中"""
         from gateway.channels.handlers import handle_channel_message
 
         mock_api = MockStreamEventsAPI(include_thinking=True, include_tools=False)
@@ -323,34 +298,29 @@ class TestThinkingAndToolInfo:
             sent_messages.append({"msg": msg, "session_id": session_id})
             return {"code": 0}
 
-        import gateway.router
+        original_ws = _patch_websocket_api(mock_api)
 
-        gateway.router._websocket_api = mock_api
+        try:
+            await handle_channel_message(
+                channel_name="test",
+                sender_id="ou_test_thinking",
+                text_content="你好",
+                api=mock_api,
+                send_func=mock_send,
+                include_thinking=True,
+                include_tools=False,
+            )
+            await asyncio.sleep(0.3)
 
-        await handle_channel_message(
-            channel_name="test",
-            sender_id="ou_test_thinking",
-            text_content="你好",
-            api=mock_api,
-            send_func=mock_send,
-            include_thinking=True,
-            include_tools=False,
-        )
-
-        await asyncio.sleep(0.3)
-
-        assert len(sent_messages) > 0, "Should send message"
-        reply = sent_messages[0]["msg"]
-        assert "测试响应" in reply or "响应" in reply, (
-            f"Reply should contain response text, got: {reply}"
-        )
-        assert "[Thinking...]" in reply, (
-            f"Reply should contain [思考...] label, got: {reply}"
-        )
+            assert len(sent_messages) > 0, "Should send message"
+            reply = sent_messages[0]["msg"]
+            assert "测试响应" in reply or "响应" in reply, f"Reply should contain response text, got: {reply}"
+            assert "[Thinking...]" in reply, f"Reply should contain [思考...] label, got: {reply}"
+        finally:
+            _restore_websocket_api(original_ws)
 
     @pytest.mark.asyncio
     async def test_tool_calls_included_in_response(self):
-        """验证工具调用信息被包含在回复中"""
         from gateway.channels.handlers import handle_channel_message
 
         mock_api = MockStreamEventsAPI(include_thinking=False, include_tools=True)
@@ -360,34 +330,31 @@ class TestThinkingAndToolInfo:
             sent_messages.append({"msg": msg, "session_id": session_id})
             return {"code": 0}
 
-        import gateway.router
+        original_ws = _patch_websocket_api(mock_api)
 
-        gateway.router._websocket_api = mock_api
+        try:
+            await handle_channel_message(
+                channel_name="test",
+                sender_id="ou_test_tools",
+                text_content="查一下天气",
+                api=mock_api,
+                send_func=mock_send,
+                include_thinking=False,
+                include_tools=True,
+            )
+            await asyncio.sleep(0.3)
 
-        await handle_channel_message(
-            channel_name="test",
-            sender_id="ou_test_tools",
-            text_content="查一下天气",
-            api=mock_api,
-            send_func=mock_send,
-            include_thinking=False,
-            include_tools=True,
-        )
-
-        await asyncio.sleep(0.3)
-
-        assert len(sent_messages) > 0, "Should send message"
-        reply = sent_messages[0]["msg"]
-        assert "测试响应" in reply or "响应" in reply, (
-            f"Reply should contain response text, got: {reply}"
-        )
-        assert "[Tool executing...]" in reply or "get_weather" in reply, (
-            f"Reply should contain [工具执行...] label, got: {reply}"
-        )
+            assert len(sent_messages) > 0, "Should send message"
+            reply = sent_messages[0]["msg"]
+            assert "测试响应" in reply or "响应" in reply, f"Reply should contain response text, got: {reply}"
+            assert "[Tool executing...]" in reply or "get_weather" in reply, (
+                f"Reply should contain [工具执行...] label, got: {reply}"
+            )
+        finally:
+            _restore_websocket_api(original_ws)
 
     @pytest.mark.asyncio
     async def test_thinking_and_tools_both_included(self):
-        """验证思考内容和工具信息同时被包含在回复中"""
         from gateway.channels.handlers import handle_channel_message
 
         mock_api = MockStreamEventsAPI(include_thinking=True, include_tools=True)
@@ -397,32 +364,31 @@ class TestThinkingAndToolInfo:
             sent_messages.append({"msg": msg, "session_id": session_id})
             return {"code": 0}
 
-        import gateway.router
+        original_ws = _patch_websocket_api(mock_api)
 
-        gateway.router._websocket_api = mock_api
+        try:
+            await handle_channel_message(
+                channel_name="test",
+                sender_id="ou_test_both",
+                text_content="你好",
+                api=mock_api,
+                send_func=mock_send,
+                include_thinking=True,
+                include_tools=True,
+            )
+            await asyncio.sleep(0.3)
 
-        await handle_channel_message(
-            channel_name="test",
-            sender_id="ou_test_both",
-            text_content="你好",
-            api=mock_api,
-            send_func=mock_send,
-            include_thinking=True,
-            include_tools=True,
-        )
-
-        await asyncio.sleep(0.3)
-
-        assert len(sent_messages) > 0, "Should send message"
-        reply = sent_messages[0]["msg"]
-        assert "[Thinking...]" in reply, f"Reply should contain [思考...], got: {reply}"
-        assert "[Tool executing...]" in reply or "get_weather" in reply, (
-            f"Reply should contain [工具执行...], got: {reply}"
-        )
+            assert len(sent_messages) > 0, "Should send message"
+            reply = sent_messages[0]["msg"]
+            assert "[Thinking...]" in reply, f"Reply should contain [思考...], got: {reply}"
+            assert "[Tool executing...]" in reply or "get_weather" in reply, (
+                f"Reply should contain [工具执行...], got: {reply}"
+            )
+        finally:
+            _restore_websocket_api(original_ws)
 
     @pytest.mark.asyncio
     async def test_thinking_excluded_when_disabled(self):
-        """验证 include_thinking=False 时不包含思考内容"""
         from gateway.channels.handlers import handle_channel_message
 
         mock_api = MockStreamEventsAPI(include_thinking=True, include_tools=False)
@@ -432,27 +398,25 @@ class TestThinkingAndToolInfo:
             sent_messages.append({"msg": msg, "session_id": session_id})
             return {"code": 0}
 
-        import gateway.router
+        original_ws = _patch_websocket_api(mock_api)
 
-        gateway.router._websocket_api = mock_api
+        try:
+            await handle_channel_message(
+                channel_name="test",
+                sender_id="ou_test_no_thinking",
+                text_content="你好",
+                api=mock_api,
+                send_func=mock_send,
+                include_thinking=False,
+                include_tools=False,
+            )
+            await asyncio.sleep(0.3)
 
-        await handle_channel_message(
-            channel_name="test",
-            sender_id="ou_test_no_thinking",
-            text_content="你好",
-            api=mock_api,
-            send_func=mock_send,
-            include_thinking=False,
-            include_tools=False,
-        )
-
-        await asyncio.sleep(0.3)
-
-        assert len(sent_messages) > 0, "Should send message"
-        reply = sent_messages[0]["msg"]
-        assert "[Thinking" not in reply, (
-            f"Reply should NOT contain [Thinking] when disabled, got: {reply}"
-        )
+            assert len(sent_messages) > 0, "Should send message"
+            reply = sent_messages[0]["msg"]
+            assert "[Thinking" not in reply, f"Reply should NOT contain [Thinking] when disabled, got: {reply}"
+        finally:
+            _restore_websocket_api(original_ws)
 
 
 class TestChannelCommands:
@@ -460,10 +424,8 @@ class TestChannelCommands:
 
     @pytest.mark.asyncio
     async def test_new_command_creates_session(self):
-        """测试 /new 命令创建新会话"""
         from gateway.channels.handlers import handle_channel_command
         import tempfile
-        import os
 
         mock_api = MockStreamEventsAPI()
         sent_messages = []
@@ -472,18 +434,16 @@ class TestChannelCommands:
             sent_messages.append({"msg": msg, "session_id": session_id})
             return {"code": 0}
 
-        import gateway.router
-
-        gateway.router._websocket_api = mock_api
+        original_ws = _patch_websocket_api(mock_api)
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            original_db = "workspace/data/sessions/sessions.json"
             temp_db = Path(tmpdir) / "sessions.json"
 
+            import fastclaw.core.config as config_mod
             import gateway.channels.handlers as h
-
-            original_file = h.SESSION_DB_FILE
-            h.SESSION_DB_FILE = temp_db
+            original_get_sessions_dir = config_mod.get_sessions_dir
+            config_mod.get_sessions_dir = lambda d=Path(tmpdir): d
+            config_mod._session_store = None
 
             try:
                 await handle_channel_command(
@@ -496,19 +456,17 @@ class TestChannelCommands:
 
                 assert len(sent_messages) > 0, "Should send reply"
                 reply = sent_messages[0]["msg"]
-                assert "New session created" in reply, (
-                    f"Should confirm new session, got: {reply}"
-                )
+                assert "New session created" in reply, f"Should confirm new session, got: {reply}"
                 assert "ID:" in reply, f"Should contain session_id, got: {reply}"
             finally:
-                h.SESSION_DB_FILE = original_file
+                config_mod.get_sessions_dir = original_get_sessions_dir
+                config_mod._session_store = None
+                _restore_websocket_api(original_ws)
 
     @pytest.mark.asyncio
     async def test_session_list_command(self):
-        """测试 /session_list 命令"""
         from gateway.channels.handlers import handle_channel_command
         import tempfile
-        import os
 
         mock_api = MockStreamEventsAPI()
         sent_messages = []
@@ -517,25 +475,19 @@ class TestChannelCommands:
             sent_messages.append({"msg": msg, "session_id": session_id})
             return {"code": 0}
 
-        import gateway.router
-
-        gateway.router._websocket_api = mock_api
+        original_ws = _patch_websocket_api(mock_api)
 
         with tempfile.TemporaryDirectory() as tmpdir:
             temp_db = Path(tmpdir) / "sessions.json"
 
+            import fastclaw.core.config as config_mod
             import gateway.channels.handlers as h
-
-            original_file = h.SESSION_DB_FILE
-            h.SESSION_DB_FILE = temp_db
+            original_get_sessions_dir = config_mod.get_sessions_dir
+            config_mod.get_sessions_dir = lambda d=Path(tmpdir): d
+            config_mod._session_store = None
 
             json.dump(
-                {
-                    "test_session_1": {
-                        "session_id": "test_session_1",
-                        "agent_id": "main_agent",
-                    }
-                },
+                {"test_session_1": {"session_id": "test_session_1", "agent_id": "main_agent"}},
                 temp_db.open("w"),
             )
 
@@ -551,19 +503,16 @@ class TestChannelCommands:
                 assert len(sent_messages) > 0, "Should send reply"
                 reply = sent_messages[0]["msg"]
                 assert "All sessions" in reply, f"Should list sessions, got: {reply}"
-                assert "test_session_1" in reply, (
-                    f"Should contain session id, got: {reply}"
-                )
+                assert "test_session_1" in reply, f"Should contain session id, got: {reply}"
             finally:
-                h.SESSION_DB_FILE = original_file
+                config_mod.get_sessions_dir = original_get_sessions_dir
+                config_mod._session_store = None
+                _restore_websocket_api(original_ws)
 
     @pytest.mark.asyncio
     async def test_clear_command(self):
-        """测试 /clear 命令"""
         from gateway.channels.handlers import handle_channel_command
         import tempfile
-        import os
-        from pathlib import Path
 
         mock_api = MockStreamEventsAPI()
         sent_messages = []
@@ -572,28 +521,22 @@ class TestChannelCommands:
             sent_messages.append({"msg": msg, "session_id": session_id})
             return {"code": 0}
 
-        import gateway.router
-
-        gateway.router._websocket_api = mock_api
+        original_ws = _patch_websocket_api(mock_api)
 
         with tempfile.TemporaryDirectory() as tmpdir:
             temp_db = Path(tmpdir) / "sessions.json"
-            temp_session_dir = temp_db.parent / "sessions" / "test_clear_session"
+            temp_session_dir = Path(tmpdir) / "test_clear_session"
             temp_session_dir.mkdir(parents=True)
             (temp_session_dir / "messages.jsonl").write_text("test data")
 
+            import fastclaw.core.config as config_mod
             import gateway.channels.handlers as h
-
-            original_file = h.SESSION_DB_FILE
-            h.SESSION_DB_FILE = temp_db
+            original_get_sessions_dir = config_mod.get_sessions_dir
+            config_mod.get_sessions_dir = lambda d=Path(tmpdir): d
+            config_mod._session_store = None
 
             json.dump(
-                {
-                    "test_clear_session": {
-                        "session_id": "test_clear_session",
-                        "agent_id": "main_agent",
-                    }
-                },
+                {"test_clear_session": {"session_id": "test_clear_session", "agent_id": "main_agent"}},
                 temp_db.open("w"),
             )
 
@@ -609,14 +552,13 @@ class TestChannelCommands:
                 assert len(sent_messages) > 0, "Should send reply"
                 reply = sent_messages[0]["msg"]
                 assert "Cleared chat history" in reply, f"Should confirm clear, got: {reply}"
-
-                assert h.SESSION_DB_FILE == temp_db
             finally:
-                h.SESSION_DB_FILE = original_file
+                config_mod.get_sessions_dir = original_get_sessions_dir
+                config_mod._session_store = None
+                _restore_websocket_api(original_ws)
 
     @pytest.mark.asyncio
     async def test_non_command_passed_to_ai(self):
-        """测试非命令消息正常传递给 AI"""
         from gateway.channels.handlers import handle_channel_command
 
         mock_api = MockStreamEventsAPI()
@@ -626,16 +568,16 @@ class TestChannelCommands:
             sent_messages.append({"msg": msg, "session_id": session_id})
             return {"code": 0}
 
-        import gateway.router
+        original_ws = _patch_websocket_api(mock_api)
 
-        gateway.router._websocket_api = mock_api
-
-        result = await handle_channel_command(
-            channel_name="test",
-            sender_id="ou_test",
-            text_content="你好",
-            api=mock_api,
-            send_func=mock_send,
-        )
-
-        assert result[0] is False, "Non-command should return False"
+        try:
+            result = await handle_channel_command(
+                channel_name="test",
+                sender_id="ou_test",
+                text_content="你好",
+                api=mock_api,
+                send_func=mock_send,
+            )
+            assert result[0] is False, "Non-command should return False"
+        finally:
+            _restore_websocket_api(original_ws)

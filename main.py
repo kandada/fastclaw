@@ -38,14 +38,14 @@ if __package__ in (None, ""):
     from core.app import start
     from gateway.server import GatewayServer
     from cli import chat as cli_chat
-    from core.bootstrap import sync_agents_if_missing, sync_skills_if_missing
+    from core.bootstrap import copy_seed_files
     from core.config import ensure_settings
 else:
     warnings.filterwarnings("ignore", message=".*pkg_resources is deprecated.*")
     from .core.app import start
     from .gateway.server import GatewayServer
     from .cli import chat as cli_chat
-    from .core.bootstrap import sync_agents_if_missing, sync_skills_if_missing
+    from .core.bootstrap import copy_seed_files
     from .core.config import ensure_settings
 
 PID_FILE = "/tmp/fastclaw.pid"
@@ -154,7 +154,7 @@ def list_skills():
 
 
 def skills_sync():
-    """从 GitHub 下载 Skills"""
+    """从包内置种子复制缺失的 workspace 文件"""
     ws_path_str = os.environ.get("FASTCLAW_WORKSPACE")
     if not ws_path_str:
         print("Error: FASTCLAW_WORKSPACE not set")
@@ -168,7 +168,7 @@ def skills_sync():
             return
         ws_path.mkdir(parents=True, exist_ok=True)
 
-    sync_skills_if_missing(ws_path)
+    copy_seed_files(ws_path)
 
 
 def list_agents():
@@ -370,10 +370,16 @@ async def main():
         ws_path_str = os.environ.get("FASTCLAW_WORKSPACE")
         if ws_path_str:
             ws_path = Path(ws_path_str)
-            if ws_path.is_dir():
-                sync_skills_if_missing(ws_path)
-                sync_agents_if_missing(ws_path)
-                ensure_settings()
+
+            # ---- Workspace 初始化 ----
+            # 从 pip 包内置种子复制 workspace 文件。
+            # 文件级保护：已有文件跳过，绝不覆盖用户数据。
+            # 种子包含: skills/, agents/, settings.json, channels/, cron/
+            ws_path.mkdir(parents=True, exist_ok=True)
+            copy_seed_files(ws_path)
+
+            # 硬编码兜底：settings.json 仍不存在时用默认值创建
+            ensure_settings()
 
         print("Starting FastClaw...")
 

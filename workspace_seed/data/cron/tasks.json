@@ -1,0 +1,12 @@
+[
+  {
+    "id": "t1",
+    "name": "task_t1",
+    "schedule": "0 0 * * *",
+    "description": "test",
+    "agent_id": "main_agent",
+    "session_id": "default",
+    "enabled": false,
+    "last_triggered": "2026-06-12T00:00:00"
+  }
+]

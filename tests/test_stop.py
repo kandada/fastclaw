@@ -3,6 +3,8 @@
 import pytest
 import asyncio
 
+pytestmark = pytest.mark.slow
+
 
 class TestStopSession:
     """停止会话测试"""
@@ -152,7 +154,6 @@ class TestStopSSE:
         from gateway.server import GatewayServer
         from gateway.router import set_websocket_api
         from tests.conftest import cleanup_test_session
-        import json
 
         set_websocket_api(shared_api)
         server = GatewayServer()
