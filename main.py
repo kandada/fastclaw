@@ -6,6 +6,7 @@ import json
 import os
 import signal
 import sys
+import tempfile
 import urllib.request
 import warnings
 from pathlib import Path
@@ -34,21 +35,21 @@ if os.environ.get("FASTCLAW_WORKSPACE") is None:
         os.environ["FASTCLAW_WORKSPACE"] = str(Path.home() / ".fastclaw" / "workspace")
 
 if __package__ in (None, ""):
-    warnings.filterwarnings("ignore", message=".*pkg_resources is deprecated.*")
+    warnings.filterwarnings("ignore", message=".*pkg_resources.*")
     from core.app import start
     from gateway.server import GatewayServer
     from cli import chat as cli_chat
     from core.bootstrap import copy_seed_files
     from core.config import ensure_settings
 else:
-    warnings.filterwarnings("ignore", message=".*pkg_resources is deprecated.*")
+    warnings.filterwarnings("ignore", message=".*pkg_resources.*")
     from .core.app import start
     from .gateway.server import GatewayServer
     from .cli import chat as cli_chat
     from .core.bootstrap import copy_seed_files
     from .core.config import ensure_settings
 
-PID_FILE = "/tmp/fastclaw.pid"
+PID_FILE = str(Path(tempfile.gettempdir()) / "fastclaw.pid")
 _http_opener = None
 
 
@@ -105,9 +106,9 @@ def status():
     try:
         data = api_get("/api/health")
         print(f"Status: {data.get('status', 'unknown')}")
+        print(f"Server: http://localhost:8765")
     except Exception as e:
         print(f"Status: offline (server not running)")
-    print(f"Server: http://localhost:8765")
 
 
 def list_sessions():
@@ -245,44 +246,44 @@ def add_agent():
 
 def show_help():
     """显示帮助"""
-    print("""FastClaw CLI
+    cmd_name = os.path.basename(sys.argv[0]) if sys.argv[0] else "fastclaw"
+    if "__main__" in cmd_name:
+        cmd_prefix = "fastclaw" if "fastclaw" in __package__ else "python -m fastclaw"
+    elif cmd_name.endswith(".py"):
+        cmd_prefix = f"python {cmd_name}"
+    else:
+        cmd_prefix = cmd_name
 
-Usage: python3 main.py <command> [options]
+    print(f"""FastClaw CLI
+
+Usage: {cmd_prefix} <command> [options]
 
 Commands:
   start                       Start web server (default)
   status                      Show running status
+  api                         Start headless API (no web server)
   chat                        Interactive chat mode
   chat --new                  New session chat
   chat --session-id <id>      Continue session chat
 
   session list                List all sessions
-  session history <id>        Show session history
-  session clear <id>          Clear session messages
-  session export <id>         Export session
 
   cron list                   List all cron tasks
-  cron add                    Add cron task (via API)
-  cron del <name>             Delete cron task (via API)
-  cron run <name>             Trigger cron task (via API)
 
   skill list                  List all skills
-  skill info <name>           Show skill details
-  skill test <name>           Test skill
-  skill sync                  Download missing skills from GitHub
+  skill sync                  Sync workspace seed files
 
-    agent list                  List all agents
-    agent add                   Add new agent (interactive)
-    agent info <name>           Show agent details
+  agent list                  List all agents
+  agent add                   Add new agent (interactive)
 
   help                        Show this help message
 
 Examples:
-  python3 main.py start                  # Start server
-  python3 main.py status                 # Check status
-  python3 main.py chat                  # Interactive chat
-  python3 main.py session list           # List sessions
-  python3 main.py cron list             # List cron tasks
+  {cmd_prefix} start              # Start server
+  {cmd_prefix} status             # Check status
+  {cmd_prefix} chat               # Interactive chat
+  {cmd_prefix} session list       # List sessions
+  {cmd_prefix} cron list          # List cron tasks
 """)
 
 
@@ -304,7 +305,7 @@ async def main():
             list_sessions()
         else:
             print(f"Unknown subcommand: {sub}")
-            print("Use 'session list' or 'session history <id>'")
+            print("Use 'session list'")
         return
 
     elif cmd == "cron":
@@ -344,14 +345,6 @@ async def main():
         if "--session-id" in raw_args:
             idx = raw_args.index("--session-id")
             session_id = raw_args[idx + 1] if idx + 1 < len(raw_args) else None
-
-        port = 8765
-        host = "0.0.0.0"
-        for i, arg in enumerate(raw_args):
-            if arg == "--port" and i + 1 < len(raw_args):
-                port = int(raw_args[i + 1])
-            elif arg == "--host" and i + 1 < len(raw_args):
-                host = raw_args[i + 1]
 
         await cli_chat(new_session=new_session, session_id=session_id)
         return

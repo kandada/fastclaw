@@ -1,4 +1,4 @@
-fastmind>=0.1.9
+fastmind>=0.2.5
 openai>=1.0.0
 websockets>=10.0
 pytest>=7.0.0
@@ -9,4 +9,4 @@ httpx>=0.23.0
 anyio>=4.5
 croniter>=6.2.0
 lark-oapi>=1.0.0
-ripgrep
+# ripgrep is optional — install ripenv[ripgrep] or install rg standalone: winget install BurntSushi.ripgrep.MSVC

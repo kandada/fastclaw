@@ -100,6 +100,10 @@ FastClaw is built on the core concept of **event-driven agent orchestration**. K
 
 ## Changelog
 
+### v1.1.16 (2026-06-26)
+- 🔧 Improvement: Made `ripgrep` an optional dependency to avoid compilation issues on Windows without MSVC
+- 🔧 Improvement: Added Python 3.13 / 3.14 support
+
 ### v1.1.15 (2026-06-12)
 
 ### v1.1.14 (2026-06-12)
@@ -130,3 +134,21 @@ FastClaw is built on the core concept of **event-driven agent orchestration**. K
 ## License
 
 GPL-3.0
+
+Copyright (c) 2024-2026 xiefujin. All rights reserved.
+
+## Official Website
+
+[https://www.fastclaw.world/](https://www.fastclaw.world/) | [https://fastclaw-ai.com/](https://fastclaw-ai.com/)
+
+## Acknowledgments
+
+Inspired by [OpenClaw](https://github.com/openclaw/openclaw). Special thanks to the open source community.
+
+---
+
+FastClaw is powerful, but its use depends entirely on the user - all responsibility lies with the user yourself.
+
+---
+
+Author：[xiefujin](https://github.com/kandada) email: 490021684@qq.com，welcome to contact me.

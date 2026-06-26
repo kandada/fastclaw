@@ -100,6 +100,10 @@ FastClaw 基于**事件驱动的 Agent 编排**核心概念。主要设计原则
 
 ## 更新日志
 
+### v1.1.16 (2026-06-26)
+- 🔧 优化：将 `ripgrep` 改为可选依赖，避免无 MSVC 的 Windows 环境编译失败
+- 🔧 优化：新增 Python 3.13 / 3.14 支持
+
 ### v1.1.15 (2026-06-12)
 
 ### v1.1.14 (2026-06-12)
@@ -130,3 +134,21 @@ FastClaw 基于**事件驱动的 Agent 编排**核心概念。主要设计原则
 ## 开源许可
 
 GPL-3.0
+
+版权所有 © 2024-2026 xiefujin。保留所有权利。
+
+## 官网
+
+[https://www.fastclaw.world/](https://www.fastclaw.world/) | [https://fastclaw-ai.com/](https://fastclaw-ai.com/)
+
+## 致谢
+
+受 [OpenClaw](https://github.com/openclaw/openclaw) 启发。感谢开源社区。
+
+---
+
+fastclaw 很强大，用处好坏全看使用者怎么用，一切责任由使用者自己承担
+
+---
+
+作者：[xiefujin](https://github.com/kandada) email: 490021684@qq.com，welcome to contact me.
