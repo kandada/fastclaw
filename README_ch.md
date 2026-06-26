@@ -135,20 +135,4 @@ FastClaw 基于**事件驱动的 Agent 编排**核心概念。主要设计原则
 
 GPL-3.0
 
-版权所有 © 2024-2026 xiefujin。保留所有权利。
 
-## 官网
-
-[https://www.fastclaw.world/](https://www.fastclaw.world/) | [https://fastclaw-ai.com/](https://fastclaw-ai.com/)
-
-## 致谢
-
-受 [OpenClaw](https://github.com/openclaw/openclaw) 启发。感谢开源社区。
-
----
-
-fastclaw 很强大，用处好坏全看使用者怎么用，一切责任由使用者自己承担
-
----
-
-作者：[xiefujin](https://github.com/kandada) email: 490021684@qq.com，welcome to contact me.
