@@ -100,6 +100,10 @@ FastClaw is built on the core concept of **event-driven agent orchestration**. K
 
 ## Changelog
 
+### v1.1.16 (2026-06-26)
+- 🔧 Improvement: Made `ripgrep` an optional dependency to avoid compilation issues on Windows without MSVC
+- 🔧 Improvement: Added Python 3.13 / 3.14 support
+
 ### v1.1.15 (2026-06-12)
 
 ### v1.1.14 (2026-06-12)

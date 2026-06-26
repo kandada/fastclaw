@@ -1189,6 +1189,7 @@
                         }
                         
                         const result = await response.json();
+                        isSending.value = false;
                         const s = sessions.value.find(x => x.session_id === sessionId);
                         if (s) s.last_active_time = Math.floor(Date.now() / 1000);
                         

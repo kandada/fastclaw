@@ -46,6 +46,23 @@ logger = logging.getLogger(__name__)
 
 CONTEXT_UNLOAD_THRESHOLD = 80000
 
+# === 缓存基础设施：减少首 token 延迟 ===
+
+_CACHED_SETTINGS = None
+_CACHED_SETTINGS_FILE = None
+_CACHED_SETTINGS_MTIME = 0
+
+_AGENT_CONFIG_CACHE = {}
+_AGENT_PERSONALITY_CACHE = {}
+_LLM_CLIENT_CACHE = {}
+
+
+def _get_file_mtime(path: Path) -> float:
+    try:
+        return path.stat().st_mtime
+    except FileNotFoundError:
+        return 0
+
 
 def calculate_tokens(text: str) -> int:
     return len(text) // 4
@@ -166,7 +183,15 @@ def unload_early_messages(messages: list, threshold: int) -> tuple[list, list]:
 
 
 def load_settings() -> dict:
+    global _CACHED_SETTINGS, _CACHED_SETTINGS_FILE, _CACHED_SETTINGS_MTIME
     settings_file = get_settings_file()
+    mtime = _get_file_mtime(settings_file)
+    if (
+        _CACHED_SETTINGS is not None
+        and settings_file == _CACHED_SETTINGS_FILE
+        and mtime == _CACHED_SETTINGS_MTIME
+    ):
+        return _CACHED_SETTINGS
     defaults = {
         "default_agent_id": "main_agent",
         "run_shell_timeout": 60,
@@ -175,10 +200,15 @@ def load_settings() -> dict:
     if settings_file.exists():
         try:
             settings = json.loads(settings_file.read_text())
-            return {**defaults, **settings}
+            settings = {**defaults, **settings}
         except:
-            pass
-    return defaults
+            settings = defaults
+    else:
+        settings = defaults
+    _CACHED_SETTINGS = settings
+    _CACHED_SETTINGS_FILE = settings_file
+    _CACHED_SETTINGS_MTIME = mtime
+    return settings
 
 
 def load_session_agent_id(session_id: str) -> str:
@@ -199,11 +229,22 @@ def load_session_agent_id(session_id: str) -> str:
 def load_agent_config(agent_id: str) -> dict:
     agent_dir = get_agents_dir() / agent_id
     metadata_file = agent_dir / "metadata.json"
+    mtime = _get_file_mtime(metadata_file)
+    cached = _AGENT_CONFIG_CACHE.get(agent_id)
+    if cached and cached["mtime"] == mtime:
+        return cached["config"]
     if metadata_file.exists():
         try:
-            return json.loads(metadata_file.read_text())
+            config = json.loads(metadata_file.read_text())
         except:
-            pass
+            config = _default_agent_config(agent_id)
+    else:
+        config = _default_agent_config(agent_id)
+    _AGENT_CONFIG_CACHE[agent_id] = {"mtime": mtime, "config": config}
+    return config
+
+
+def _default_agent_config(agent_id: str) -> dict:
     return {
         "name": agent_id,
         "llm": {
@@ -224,8 +265,17 @@ def load_agent_config(agent_id: str) -> dict:
 
 def load_agent_personality(agent_id: str) -> str:
     agent_dir = get_agents_dir() / agent_id
+    personality_files = ["SOUL.md", "USER.md", "AGENT.md"]
+    latest_mtime = 0
+    for filename in personality_files:
+        mtime = _get_file_mtime(agent_dir / filename)
+        if mtime > latest_mtime:
+            latest_mtime = mtime
+    cached = _AGENT_PERSONALITY_CACHE.get(agent_id)
+    if cached and cached["mtime"] == latest_mtime:
+        return cached["personality"]
     parts = []
-    for filename in ["SOUL.md", "USER.md", "AGENT.md"]:
+    for filename in personality_files:
         filepath = agent_dir / filename
         if filepath.exists():
             try:
@@ -234,7 +284,9 @@ def load_agent_personality(agent_id: str) -> str:
                     parts.append(f"\n\n## {filename.replace('.md', '')}\n{content}")
             except:
                 pass
-    return "".join(parts)
+    personality = "".join(parts)
+    _AGENT_PERSONALITY_CACHE[agent_id] = {"mtime": latest_mtime, "personality": personality}
+    return personality
 
 
 def load_skills(skills_dir: str = None) -> dict:
@@ -337,6 +389,19 @@ SYSTEM_PROMPT_TEMPLATE = SYSTEM_PROMPT.replace("{skills_list}", SKILLS_LIST)
 
 WORKSPACE_PATH = get_workspace_path()
 CONFIRM_PREFIX = "CONFIRM:"
+
+
+def _get_llm_client(llm_config: dict) -> AsyncOpenAI:
+    api_key = llm_config.get("api_key", "")
+    base_url = llm_config.get("base_url", "https://api.deepseek.com/v1")
+    timeout = llm_config.get("timeout", 120) or 120
+    cache_key = (api_key, base_url, timeout)
+    client = _LLM_CLIENT_CACHE.get(cache_key)
+    if client is None:
+        client = AsyncOpenAI(api_key=api_key, base_url=base_url, timeout=timeout)
+        _LLM_CLIENT_CACHE[cache_key] = client
+    return client
+
 
 DENY_PATTERNS = [
     (re.compile(r"rm\s+-rf\s+/\s*$"), "rm -rf / (recursive root deletion, destroys system)"),
@@ -756,13 +821,8 @@ async def fastclaw_agent(state: dict, event: Event) -> dict:
     llm_messages = fix_invalid_tool_calls(llm_messages)
 
     llm_config = agent_config.get("llm", {})
-    llm_timeout = llm_config.get("timeout", 120) or 120
 
-    client = AsyncOpenAI(
-        api_key=llm_config.get("api_key", ""),
-        base_url=llm_config.get("base_url", "https://api.deepseek.com/v1"),
-        timeout=llm_timeout,
-    )
+    client = _get_llm_client(llm_config)
 
     extra_workspaces = agent_config.get("extra_workspaces", [])
     system_prompt = format_system_prompt(
