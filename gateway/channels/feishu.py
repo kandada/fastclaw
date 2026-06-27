@@ -1,3 +1,5 @@
+# Copyright (c) 2024-2026 xiefujin <490021684@qq.com>
+# Licensed under GNU GPLv3, see LICENSE file for full license terms.
 """飞书渠道适配器（长连接模式，使用 lark-oapi SDK）"""
 
 import asyncio
@@ -276,7 +278,7 @@ class FeishuAdapter(ChannelAdapter, BaseHttpClient):
         """从文件加载飞书配置"""
         config_path = Path(config_file)
         if config_path.exists():
-            config = json.loads(config_path.read_text())
+            config = json.loads(config_path.read_text(encoding="utf-8"))
             self.load_config(config)
             self.app_id = config.get("app_id")
             self.app_secret = config.get("app_secret")

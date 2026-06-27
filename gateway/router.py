@@ -1,3 +1,5 @@
+# Copyright (c) 2024-2026 xiefujin <490021684@qq.com>
+# Licensed under GNU GPLv3, see LICENSE file for full license terms.
 # router.py
 """FastClaw Gateway HTTP 路由"""
 
@@ -69,9 +71,9 @@ def load_settings() -> dict:
     """加载设置"""
     if SETTINGS_FILE.exists():
         try:
-            return json.loads(SETTINGS_FILE.read_text())
-        except:
-            pass
+            return json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
+        except Exception as e:
+            print(f"Failed to load settings from {SETTINGS_FILE}: {e}")
     return {"default_agent_id": "main_agent"}
 
 
@@ -198,9 +200,9 @@ async def list_agents():
                 metadata_file = agent_path / "metadata.json"
                 if metadata_file.exists():
                     try:
-                        agents.append(json.loads(metadata_file.read_text()))
-                    except:
-                        pass
+                        agents.append(json.loads(metadata_file.read_text(encoding="utf-8")))
+                    except Exception as e:
+                        print(f"Failed to load agent metadata from {metadata_file}: {e}")
     return {"agents": agents}
 
 
@@ -223,15 +225,15 @@ async def create_agent(request: Request):
 
     soul_content = data.get("soul_content", f"# {name}\n\nYou are a smart assistant.\n")
     soul_file = agent_dir / "SOUL.md"
-    soul_file.write_text(soul_content)
+    soul_file.write_text(soul_content, encoding="utf-8")
 
     user_content = data.get("user_content", "")
     user_file = agent_dir / "USER.md"
-    user_file.write_text(user_content)
+    user_file.write_text(user_content, encoding="utf-8")
 
     agent_content = data.get("agent_content", "")
     agent_file = agent_dir / "AGENT.md"
-    agent_file.write_text(agent_content)
+    agent_file.write_text(agent_content, encoding="utf-8")
 
     metadata = {
         "name": name,
@@ -242,7 +244,7 @@ async def create_agent(request: Request):
         "created_at": int(time.time()),
     }
     metadata_file = agent_dir / "metadata.json"
-    metadata_file.write_text(json.dumps(metadata, ensure_ascii=False, indent=2))
+    metadata_file.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
 
     return metadata
 
@@ -262,16 +264,16 @@ async def get_agent(name: str):
     result = {}
     if metadata_file.exists():
         try:
-            result = json.loads(metadata_file.read_text())
-        except:
-            pass
+            result = json.loads(metadata_file.read_text(encoding="utf-8"))
+        except Exception as e:
+            print(f"Failed to load agent metadata from {metadata_file}: {e}")
 
     if soul_file.exists():
-        result["soul_content"] = soul_file.read_text()
+        result["soul_content"] = soul_file.read_text(encoding="utf-8")
     if user_file.exists():
-        result["user_content"] = user_file.read_text()
+        result["user_content"] = user_file.read_text(encoding="utf-8")
     if agent_file.exists():
-        result["agent_content"] = agent_file.read_text()
+        result["agent_content"] = agent_file.read_text(encoding="utf-8")
 
     return result
 
@@ -293,18 +295,18 @@ async def update_agent(name: str, request: Request):
     metadata = {}
     if metadata_file.exists():
         try:
-            metadata = json.loads(metadata_file.read_text())
-        except:
-            pass
+            metadata = json.loads(metadata_file.read_text(encoding="utf-8"))
+        except Exception as e:
+            print(f"Failed to load agent metadata from {metadata_file}: {e}")
 
     if "description" in data:
         metadata["description"] = data["description"]
     if "soul_content" in data:
-        soul_file.write_text(data["soul_content"])
+        soul_file.write_text(data["soul_content"], encoding="utf-8")
     if "user_content" in data:
-        user_file.write_text(data["user_content"])
+        user_file.write_text(data["user_content"], encoding="utf-8")
     if "agent_content" in data:
-        agent_file.write_text(data["agent_content"])
+        agent_file.write_text(data["agent_content"], encoding="utf-8")
     if "llm" in data:
         metadata["llm"] = data["llm"]
     if "context" in data:
@@ -313,7 +315,7 @@ async def update_agent(name: str, request: Request):
         metadata["extra_workspaces"] = data["extra_workspaces"]
 
     metadata["updated_at"] = int(time.time())
-    metadata_file.write_text(json.dumps(metadata, ensure_ascii=False, indent=2))
+    metadata_file.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
 
     return metadata
 
@@ -340,9 +342,9 @@ async def list_crons():
     tasks_file = get_cron_dir() / "tasks.json"
     if tasks_file.exists():
         try:
-            return {"tasks": json.loads(tasks_file.read_text())}
-        except:
-            pass
+            return {"tasks": json.loads(tasks_file.read_text(encoding="utf-8"))}
+        except Exception as e:
+            print(f"Failed to load cron tasks from {tasks_file}: {e}")
     return {"tasks": []}
 
 
@@ -359,9 +361,10 @@ async def create_cron(task_data: dict):
     tasks = []
     if tasks_file.exists():
         try:
-            tasks = json.loads(tasks_file.read_text())
-        except:
-            pass
+            tasks = json.loads(tasks_file.read_text(encoding="utf-8"))
+        except Exception as e:
+            print(f"Failed to load cron tasks from {tasks_file}: {e}")
+            tasks = []
 
     task_id = prepared.get("id")
     if task_id:
@@ -380,7 +383,7 @@ async def create_cron(task_data: dict):
     else:
         tasks.append(prepared)
 
-    tasks_file.write_text(json.dumps(tasks, indent=2))
+    tasks_file.write_text(json.dumps(tasks, indent=2), encoding="utf-8")
 
     cron_scheduler = get_cron_scheduler()
     cron_scheduler.reload_tasks()
@@ -394,13 +397,13 @@ async def delete_cron(task_id: str):
     tasks_file = get_cron_dir() / "tasks.json"
     if tasks_file.exists():
         try:
-            tasks = json.loads(tasks_file.read_text())
+            tasks = json.loads(tasks_file.read_text(encoding="utf-8"))
             tasks = [t for t in tasks if t.get("id") != task_id]
-            tasks_file.write_text(json.dumps(tasks, indent=2))
+            tasks_file.write_text(json.dumps(tasks, indent=2), encoding="utf-8")
             cron_scheduler = get_cron_scheduler()
             cron_scheduler.reload_tasks()
-        except:
-            pass
+        except Exception as e:
+            print(f"Failed to delete cron task {task_id}: {e}")
     return {"status": "deleted"}
 
 
@@ -515,7 +518,7 @@ async def get_session_messages(session_id: str):
         return []
 
     messages = []
-    for line in messages_file.read_text().splitlines():
+    for line in messages_file.read_text(encoding="utf-8").splitlines():
         if line.strip():
             try:
                 messages.append(json.loads(line))
@@ -547,9 +550,9 @@ async def get_settings():
     """获取系统设置"""
     if SETTINGS_FILE.exists():
         try:
-            return json.loads(SETTINGS_FILE.read_text())
-        except:
-            pass
+            return json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
+        except Exception as e:
+            print(f"Failed to load settings from {SETTINGS_FILE}: {e}")
     return {"default_agent_id": "main_agent"}
 
 
@@ -557,7 +560,7 @@ async def get_settings():
 async def update_settings(settings: dict):
     """更新系统设置"""
     SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    SETTINGS_FILE.write_text(json.dumps(settings, indent=2))
+    SETTINGS_FILE.write_text(json.dumps(settings, indent=2), encoding="utf-8")
     return {"status": "saved", "settings": settings}
 
 

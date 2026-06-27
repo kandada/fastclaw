@@ -1,3 +1,5 @@
+# Copyright (c) 2024-2026 xiefujin <490021684@qq.com>
+# Licensed under GNU GPLv3, see LICENSE file for full license terms.
 """
 FastClaw - AI Agent Framework
 
@@ -7,7 +9,7 @@ FastClaw - AI Agent Framework
 3. pip 安装后: fastclaw start
 """
 
-__version__ = "1.1.16"
+__version__ = "1.1.18"
 
 import os
 import sys

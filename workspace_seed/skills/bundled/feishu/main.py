@@ -1,3 +1,5 @@
+# Copyright (c) 2024-2026 xiefujin <490021684@qq.com>
+# Licensed under GNU GPLv3, see LICENSE file for full license terms.
 """飞书技能 - 调用 FeishuAdapter 操作飞书云文档"""
 
 from typing import Optional

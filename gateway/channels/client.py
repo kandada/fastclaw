@@ -1,3 +1,5 @@
+# Copyright (c) 2024-2026 xiefujin <490021684@qq.com>
+# Licensed under GNU GPLv3, see LICENSE file for full license terms.
 """通用 HTTP Client 基类
 
 提供 Token 管理、HTTP 请求、OAuth 流程等通用能力
@@ -22,11 +24,11 @@ class BaseHttpClient:
     def _load_config(self) -> dict:
         if not self.config_path.exists():
             return {}
-        return json.loads(self.config_path.read_text())
+        return json.loads(self.config_path.read_text(encoding="utf-8"))
 
     def _save_config(self):
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
-        self.config_path.write_text(json.dumps(self.config, indent=2))
+        self.config_path.write_text(json.dumps(self.config, indent=2), encoding="utf-8")
 
     @property
     def http_client(self) -> httpx.AsyncClient:

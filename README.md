@@ -100,6 +100,16 @@ FastClaw is built on the core concept of **event-driven agent orchestration**. K
 
 ## Changelog
 
+### v1.1.18 (2026-06-27)
+- 🔧 Improvement: Added copyright and GPLv3 license headers to all source files
+
+### v1.1.17 (2026-06-27)
+- 🐛 Fix: Resolved `UnicodeDecodeError` on Windows Chinese systems by adding `encoding="utf-8"` to all `read_text()` / `write_text()` calls, fixing the crash on second startup
+- 🐛 Fix: WebUI agent edit/create buttons now show error messages on failure instead of silently doing nothing
+- 🐛 Fix: Removed 3 extra `</div>` tags from WebUI HTML that could cause DOM parsing issues
+- 🔧 Improvement: Startup messages now show `http://localhost:{port}` alongside `http://0.0.0.0:{port}` for easier access on Windows
+- 🔧 Improvement: Added diagnostic logging to silent `except` blocks in router.py for easier debugging
+
 ### v1.1.16 (2026-06-26)
 - 🔧 Improvement: Made `ripgrep` an optional dependency to avoid compilation issues on Windows without MSVC
 - 🔧 Improvement: Added Python 3.13 / 3.14 support

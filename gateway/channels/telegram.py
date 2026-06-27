@@ -1,3 +1,5 @@
+# Copyright (c) 2024-2026 xiefujin <490021684@qq.com>
+# Licensed under GNU GPLv3, see LICENSE file for full license terms.
 """Telegram 渠道适配器"""
 
 import asyncio
@@ -146,7 +148,7 @@ class TelegramAdapter(ChannelAdapter):
 
         config_path = Path(config_file)
         if config_path.exists():
-            config = json.loads(config_path.read_text())
+            config = json.loads(config_path.read_text(encoding="utf-8"))
             self.load_config(config)
             self.bot_token = config.get("bot_token")
 

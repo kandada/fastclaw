@@ -1,3 +1,5 @@
+# Copyright (c) 2024-2026 xiefujin <490021684@qq.com>
+# Licensed under GNU GPLv3, see LICENSE file for full license terms.
 # app.py
 """FastClaw 核心引擎"""
 
@@ -152,7 +154,7 @@ def load_messages_from_jsonl(session_id: str) -> list:
     if not messages_file.exists():
         return []
     messages = []
-    for line in messages_file.read_text().splitlines():
+    for line in messages_file.read_text(encoding="utf-8").splitlines():
         if line.strip():
             try:
                 msg = json.loads(line)
@@ -199,7 +201,7 @@ def load_settings() -> dict:
     }
     if settings_file.exists():
         try:
-            settings = json.loads(settings_file.read_text())
+            settings = json.loads(settings_file.read_text(encoding="utf-8"))
             settings = {**defaults, **settings}
         except:
             settings = defaults
@@ -215,7 +217,7 @@ def load_session_agent_id(session_id: str) -> str:
     sessions_file = get_sessions_dir() / "sessions.json"
     if sessions_file.exists():
         try:
-            sessions = json.loads(sessions_file.read_text())
+            sessions = json.loads(sessions_file.read_text(encoding="utf-8"))
             if session_id in sessions:
                 agent_id = sessions[session_id].get("agent_id", "")
                 if agent_id:
@@ -235,7 +237,7 @@ def load_agent_config(agent_id: str) -> dict:
         return cached["config"]
     if metadata_file.exists():
         try:
-            config = json.loads(metadata_file.read_text())
+            config = json.loads(metadata_file.read_text(encoding="utf-8"))
         except:
             config = _default_agent_config(agent_id)
     else:
@@ -279,7 +281,7 @@ def load_agent_personality(agent_id: str) -> str:
         filepath = agent_dir / filename
         if filepath.exists():
             try:
-                content = filepath.read_text().strip()
+                content = filepath.read_text(encoding="utf-8").strip()
                 if content:
                     parts.append(f"\n\n## {filename.replace('.md', '')}\n{content}")
             except:
@@ -302,7 +304,7 @@ def load_skills(skills_dir: str = None) -> dict:
         skill_name = skill_dir.name
         desc = ""
         if skill_path.exists():
-            content = skill_path.read_text()
+            content = skill_path.read_text(encoding="utf-8")
             lines = content.split("\n")
             for i, line in enumerate(lines):
                 if line.strip().startswith("## Description") and i + 1 < len(lines):
@@ -682,7 +684,7 @@ async def run_skills(skill_name: str = None, params: dict = None, timeout: int =
         skill_info = SKILLS[target_skill]
         skill_md_path = Path(skill_info["path"]) / "SKILL.md"
         if skill_md_path.exists():
-            return skill_md_path.read_text()
+            return skill_md_path.read_text(encoding="utf-8")
         return f"Skill: {target_skill}\nDescription: {skill_info['description']}"
     if skill_name not in SKILLS:
         return f"Error: Skill '{skill_name}' not found"

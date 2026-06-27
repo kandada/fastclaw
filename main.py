@@ -1,3 +1,5 @@
+# Copyright (c) 2024-2026 xiefujin <490021684@qq.com>
+# Licensed under GNU GPLv3, see LICENSE file for full license terms.
 """FastClaw 统一入口"""
 
 import asyncio
@@ -74,7 +76,7 @@ def check_pid_file():
     """检查 PID 文件，防止重复启动"""
     if Path(PID_FILE).exists():
         try:
-            old_pid = int(Path(PID_FILE).read_text().strip())
+            old_pid = int(Path(PID_FILE).read_text(encoding="utf-8").strip())
             if old_pid != os.getpid():
                 try:
                     os.kill(old_pid, 0)
@@ -87,14 +89,14 @@ def check_pid_file():
                     pass
         except (ValueError, OSError):
             pass
-    Path(PID_FILE).write_text(str(os.getpid()))
+    Path(PID_FILE).write_text(str(os.getpid()), encoding="utf-8")
 
 
 def cleanup_pid_file():
     """清理 PID 文件"""
     if Path(PID_FILE).exists():
         try:
-            if int(Path(PID_FILE).read_text().strip()) == os.getpid():
+            if int(Path(PID_FILE).read_text(encoding="utf-8").strip()) == os.getpid():
                 Path(PID_FILE).unlink()
         except (ValueError, OSError):
             pass
@@ -379,8 +381,8 @@ async def main():
         server = GatewayServer(host=host, port=port)
         await server.start()
 
-        print(f"FastClaw Gateway running at http://{host}:{port}")
-        print(f"WebUI available at http://{host}:{port}/")
+        print(f"FastClaw Gateway running at http://{host}:{port} (http://localhost:{port})")
+        print(f"WebUI available at http://{host}:{port}/ (http://localhost:{port}/)")
         print(f"SSE endpoint at http://{host}:{port}/api/chat/{{session_id}}")
         print(f"WebSocket available at ws://{host}:{port}/ws (legacy)")
         print(f"Press Ctrl+C to stop")

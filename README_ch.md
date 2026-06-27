@@ -100,6 +100,16 @@ FastClaw 基于**事件驱动的 Agent 编排**核心概念。主要设计原则
 
 ## 更新日志
 
+### v1.1.18 (2026-06-27)
+- 🔧 优化：所有源代码文件添加版权声明及 GPLv3 许可证头部注释
+
+### v1.1.17 (2026-06-27)
+- 🐛 修复：为所有 `read_text()` / `write_text()` 添加 `encoding="utf-8"`，解决 Windows 中文系统第二次启动时的 `UnicodeDecodeError` 崩溃问题
+- 🐛 修复：WebUI agent 编辑/创建按钮失败时显示错误提示，不再静默无反应
+- 🐛 修复：移除 WebUI HTML 中 3 个多余的 `</div>` 标签，避免 DOM 解析异常
+- 🔧 优化：启动消息现在同时显示 `http://0.0.0.0:{port}` 和 `http://localhost:{port}`，方便 Windows 用户直接点击访问
+- 🔧 优化：为 router.py 中静默 `except` 块添加诊断日志，便于排查数据加载失败原因
+
 ### v1.1.16 (2026-06-26)
 - 🔧 优化：将 `ripgrep` 改为可选依赖，避免无 MSVC 的 Windows 环境编译失败
 - 🔧 优化：新增 Python 3.13 / 3.14 支持

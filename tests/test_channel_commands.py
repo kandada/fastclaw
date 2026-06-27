@@ -1,3 +1,5 @@
+# Copyright (c) 2024-2026 xiefujin <490021684@qq.com>
+# Licensed under GNU GPLv3, see LICENSE file for full license terms.
 """Channel Commands Integration Tests
 
 测试飞书、Telegram 等渠道的命令处理功能。

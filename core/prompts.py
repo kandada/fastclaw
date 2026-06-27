@@ -1,3 +1,5 @@
+# Copyright (c) 2024-2026 xiefujin <490021684@qq.com>
+# Licensed under GNU GPLv3, see LICENSE file for full license terms.
 """FastClaw System Prompt template"""
 
 SYSTEM_PROMPT = """You are an autonomous intelligent assistant, codename FastClaw.

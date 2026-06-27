@@ -1,3 +1,5 @@
+# Copyright (c) 2024-2026 xiefujin <490021684@qq.com>
+# Licensed under GNU GPLv3, see LICENSE file for full license terms.
 """
 FastClaw 配置模块
 
@@ -114,7 +116,8 @@ def ensure_settings():
         return
     settings_file.parent.mkdir(parents=True, exist_ok=True)
     settings_file.write_text(
-        json.dumps(_DEFAULT_SETTINGS, indent=2, ensure_ascii=False)
+        json.dumps(_DEFAULT_SETTINGS, indent=2, ensure_ascii=False),
+        encoding="utf-8",
     )
 
 
@@ -135,17 +138,17 @@ class SessionStore:
     def ensure_db(self):
         self.db_file.parent.mkdir(parents=True, exist_ok=True)
         if not self.db_file.exists():
-            self.db_file.write_text("{}")
+            self.db_file.write_text("{}", encoding="utf-8")
 
     def load(self) -> dict:
         with self._lock:
             self.ensure_db()
             try:
-                return json.loads(self.db_file.read_text())
+                return json.loads(self.db_file.read_text(encoding="utf-8"))
             except Exception:
                 time.sleep(0.05)
                 try:
-                    return json.loads(self.db_file.read_text())
+                    return json.loads(self.db_file.read_text(encoding="utf-8"))
                 except Exception:
                     return {}
 
@@ -153,7 +156,8 @@ class SessionStore:
         with self._lock:
             self.ensure_db()
             self.db_file.write_text(
-                json.dumps(sessions, indent=2, ensure_ascii=False)
+                json.dumps(sessions, indent=2, ensure_ascii=False),
+                encoding="utf-8",
             )
 
 

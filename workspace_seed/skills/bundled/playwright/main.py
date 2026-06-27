@@ -1,3 +1,5 @@
+# Copyright (c) 2024-2026 xiefujin <490021684@qq.com>
+# Licensed under GNU GPLv3, see LICENSE file for full license terms.
 """
 Playwright浏览器自动化Skill - 支持浏览器自动化、动态网页处理、前端测试等能力
 跨平台兼容版本，支持macOS、Linux、Windows系统

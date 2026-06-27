@@ -557,9 +557,6 @@
             </div>
         </div>
     </div>
-            </div>
-        </div>
-    </div>
 
     <script src="/webui/static/js/vue3.prod.js"></script>
     <script src="/webui/static/js/element-plus.full.min.js"></script>
@@ -1420,6 +1417,7 @@
                 }
 
                 async function showAgentDialog(agent = null) {
+                    try {
                     if (agent) {
                         editingAgent.value = agent;
                         const r = await fetch(`/api/agents/${agent.name}`);
@@ -1453,9 +1451,14 @@
                         }
                     }
                     agentDialogVisible.value = true;
+                    } catch (e) {
+                        console.error('Failed to load agent:', e);
+                        ElementPlus.ElMessage.error('Failed to load agent: ' + e.message);
+                    }
                 }
 
                 async function saveAgent() {
+                    try {
                     const t = { ...agentForm.value };
                     if (editingAgent.value) {
                         await fetch(`/api/agents/${editingAgent.value.name}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(t) });
@@ -1464,6 +1467,11 @@
                     }
                     agentDialogVisible.value = false;
                     loadAgents();
+                    ElementPlus.ElMessage.success(editingAgent.value ? 'Agent updated' : 'Agent created');
+                    } catch (e) {
+                        console.error('Failed to save agent:', e);
+                        ElementPlus.ElMessage.error('Failed to save agent: ' + e.message);
+                    }
                 }
 
                 async function deleteAgent(name) {

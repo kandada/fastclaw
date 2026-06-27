@@ -1,3 +1,5 @@
+# Copyright (c) 2024-2026 xiefujin <490021684@qq.com>
+# Licensed under GNU GPLv3, see LICENSE file for full license terms.
 # cron_scheduler.py
 """Cron 调度器 - 网关层的定时任务管理"""
 
@@ -76,7 +78,7 @@ class CronScheduler:
             return
 
         try:
-            tasks_data = json.loads(self._task_file.read_text())
+            tasks_data = json.loads(self._task_file.read_text(encoding="utf-8"))
             self._tasks = {}
             for t in tasks_data:
                 last_triggered = None
@@ -106,7 +108,7 @@ class CronScheduler:
         if not self._task_file.exists():
             return
         try:
-            disk_data = json.loads(self._task_file.read_text())
+            disk_data = json.loads(self._task_file.read_text(encoding="utf-8"))
             for t in disk_data:
                 tid = t.get("id")
                 if tid and tid not in self._tasks:
@@ -141,7 +143,7 @@ class CronScheduler:
                     "last_triggered": task.last_triggered.isoformat() if task.last_triggered else None,
                 }
             )
-        self._task_file.write_text(json.dumps(tasks_data, indent=2, ensure_ascii=False))
+        self._task_file.write_text(json.dumps(tasks_data, indent=2, ensure_ascii=False), encoding="utf-8")
 
     def get_task(self, task_id: str) -> Optional[CronTask]:
         """获取任务"""

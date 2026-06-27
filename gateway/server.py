@@ -1,3 +1,5 @@
+# Copyright (c) 2024-2026 xiefujin <490021684@qq.com>
+# Licensed under GNU GPLv3, see LICENSE file for full license terms.
 # server.py
 """FastClaw Gateway 服务
 
@@ -102,7 +104,7 @@ class GatewayServer:
             try:
                 import json
 
-                config = json.loads(feishu_config_file.read_text())
+                config = json.loads(feishu_config_file.read_text(encoding="utf-8"))
                 if config.get("enabled"):
                     adapter = FeishuAdapter()
                     adapter.load_config_from_file(str(feishu_config_file))
@@ -150,8 +152,8 @@ async def main():
     server = GatewayServer()
     await server.start()
 
-    print(f"FastClaw Gateway running at http://{server.host}:{server.port}")
-    print(f"WebUI available at http://{server.host}:{server.port}/")
+    print(f"FastClaw Gateway running at http://{server.host}:{server.port} (http://localhost:{server.port})")
+    print(f"WebUI available at http://{server.host}:{server.port}/ (http://localhost:{server.port}/)")
     print(f"SSE endpoint at http://{server.host}:{server.port}/api/chat/{{session_id}}")
     print(f"WebSocket available at ws://{server.host}:{server.port}/ws (legacy)")
 

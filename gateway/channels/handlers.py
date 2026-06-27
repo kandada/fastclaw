@@ -1,3 +1,5 @@
+# Copyright (c) 2024-2026 xiefujin <490021684@qq.com>
+# Licensed under GNU GPLv3, see LICENSE file for full license terms.
 """Channel 消息处理共享逻辑
 
 所有支持流式响应的 channel（飞书、Telegram等）应使用此模块中的
