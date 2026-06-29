@@ -44,12 +44,13 @@ class IMessageAdapter(ChannelAdapter):
             else recipient
         )
 
+        _escaped_msg = message.replace('"', '\\"')  # 兼容 Python < 3.12: 不能在 f-string {} 内使用反斜杠，先赋值给变量
         script = f'''
         osascript -e '
         tell application "Messages"
             set targetService to 1
             set targetBuddy to "{recipient}"
-            set msg to "{message.replace('"', '\\"')}"
+            set msg to "{_escaped_msg}"
             send msg to buddy targetBuddy of service id targetService
         end tell
         '

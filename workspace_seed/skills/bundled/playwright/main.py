@@ -345,8 +345,10 @@ def _get_browser_version(executable_path: str) -> Optional[str]:
     try:
         if _get_platform() == PlatformType.WINDOWS:
             # Windows使 with wmicGet 版本
+            _ep_wmic = executable_path.replace('/', '\\\\')  # 兼容 Python < 3.12: 不能在 f-string {} 内使用反斜杠，先赋值给变量
+            _cmd = ["wmic", "datafile", "where", f"name='{_ep_wmic}'", "get", "Version"]
             result = subprocess.run(
-                ["wmic", "datafile", "where", f"name='{executable_path.replace('/', '\\\\')}'", "get", "Version"],
+                _cmd,
                 capture_output=True,
                 text=True,
                 timeout=5
@@ -1467,7 +1469,7 @@ async def browser_automation(
                 if not isinstance(s, dict):
                     validation_errors.append(f"steps[{i}] must be a dict")
                 elif "type" not in s:
-                    validation_errors.append(f"steps[{i}] missing 'type' field (use e.g. {{\"type\": \"click\", \"selector\": \"...\"}})")
+                    validation_errors.append(f'steps[{i}] missing \'type\' field (use e.g. {"type": "click", "selector": "..."})')  # 兼容 Python < 3.12: f-string 外层用单引号避免 {} 内的反斜杠
                 elif s.get("selector"):
                     sv, se = _validate_selector(s["selector"])
                     if not sv:
