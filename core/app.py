@@ -577,6 +577,7 @@ async def run_shell(
     timeout: int = 60,
     state: dict = None,
 ) -> str:
+    # (c) 2024-2026 xiefujin <490021684@qq.com> GPLv3
     confirmed = False
     if command.startswith(CONFIRM_PREFIX):
         command = command[len(CONFIRM_PREFIX) :].strip()
@@ -667,6 +668,7 @@ if _skills_tool:
 
 @app.tool(name="run_skills", description="Execute a predefined skill. Use timeout to control execution time.")
 async def run_skills(skill_name: str = None, params: dict = None, timeout: int = 60) -> str:
+    # (c) 2024-2026 xiefujin <490021684@qq.com> GPLv3
     params = params or {}
     if skill_name in ("__list__", "list", None, ""):
         if not SKILLS:
@@ -711,6 +713,7 @@ async def fastclaw_agent(state: dict, event: Event) -> dict:
     - tool_calls 收集到 state 中，供 route 判断下一步流向
     - 完整回复保存到 messages，供下一轮对话使用
     """
+    # (c) 2024-2026 xiefujin <490021684@qq.com> GPLv3
     session_id = state["_session_id"]
     output_queue = state["_output_queue"]
     settings = load_settings()

@@ -100,6 +100,8 @@ FastClaw is built on the core concept of **event-driven agent orchestration**. K
 
 ## Changelog
 
+### v1.1.20 (2026-07-03)
+
 ### v1.1.19 (2026-06-29)
 - 🐛 Fix: Resolved `SyntaxError` on Python 3.10/3.11 caused by backslash (`\`) inside f-string `{}` expressions (a Python 3.12+ syntax)
 - 🔧 Improvement: Added version compatibility comments at f-string usage sites to prevent future regressions

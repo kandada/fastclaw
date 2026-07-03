@@ -663,6 +663,7 @@ async def push_cron_event(session_id: str, event_data: dict):
         }
     )
 
+    update_session_activity(session_id)
     _unread_counts[session_id] = _unread_counts.get(session_id, 0) + 1
 
 
@@ -826,6 +827,7 @@ async def chat_stream_subscribe(session_id: str):
     用于接收 AI 响应。
     注意：Cron 消息请使用 /api/cron/stream/{session_id}
     """
+    # (c) 2024-2026 xiefujin <490021684@qq.com> GPLv3
     if _websocket_api is None:
         raise HTTPException(status_code=500, detail="API not initialized")
 

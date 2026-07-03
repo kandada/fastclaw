@@ -171,6 +171,7 @@ async def handle_channel_message(
     Returns:
         tuple: (是否成功, 当前应使用的 session_id)
     """
+    # (c) 2024-2026 xiefujin <490021684@qq.com> GPLv3
     if not api:
         print(f"[{channel_name}] ERROR: _websocket_api is None!")
         return False, sender_id
