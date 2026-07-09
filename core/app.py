@@ -291,6 +291,66 @@ def load_agent_personality(agent_id: str) -> str:
     return personality
 
 
+def find_skill_md(skill_dir: Path) -> Path | None:
+    """在技能目录中大小写不敏感地定位 SKILL.md（兼容 skill.md / Skill.md）。"""
+    skill_dir = Path(skill_dir)
+    direct = skill_dir / "SKILL.md"
+    if direct.exists():
+        return direct
+    if skill_dir.is_dir():
+        for child in skill_dir.iterdir():
+            if child.is_file() and child.name.lower() == "skill.md":
+                return child
+    return None
+
+
+def parse_skill_description(content: str) -> str:
+    """解析技能简介：优先 YAML frontmatter 的 description，回退到 ## Description 段落（支持多行）。"""
+    fm = re.match(r"^\ufeff?\s*---\s*\n(.*?)\n---\s*(?:\n|$)", content, re.DOTALL)
+    if fm:
+        m = re.search(r"^\s*description\s*:\s*(.+?)\s*$", fm.group(1), re.MULTILINE)
+        if m:
+            desc = m.group(1).strip().strip('"').strip("'").strip()
+            if desc:
+                return desc
+    lines = content.split("\n")
+    for i, line in enumerate(lines):
+        if line.strip().lower().startswith("## description"):
+            collected = []
+            for nxt in lines[i + 1:]:
+                s = nxt.strip()
+                if s.startswith("## "):
+                    break
+                if s == "":
+                    if collected:
+                        break
+                    continue
+                collected.append(s)
+            desc = " ".join(collected).strip()
+            if desc:
+                return desc
+            break
+    return ""
+
+
+def list_skill_resources(skill_dir: Path) -> list:
+    """列出技能目录内除 SKILL.md 之外可供按需读取的资源文件（相对路径）。"""
+    skill_dir = Path(skill_dir)
+    if not skill_dir.is_dir():
+        return []
+    out = []
+    for p in sorted(skill_dir.rglob("*")):
+        if not p.is_file():
+            continue
+        if p.name.lower() == "skill.md":
+            continue
+        rel = p.relative_to(skill_dir)
+        if any(part.startswith(".") or part == "__pycache__" for part in rel.parts):
+            continue
+        out.append(str(rel))
+    return out
+
+
 def load_skills(skills_dir: str = None) -> dict:
     skills = {}
     if skills_dir is None:
@@ -299,17 +359,18 @@ def load_skills(skills_dir: str = None) -> dict:
         skills_dir_path = Path(skills_dir)
     if not skills_dir_path.exists():
         return skills
-    for skill_path in skills_dir_path.rglob("SKILL.md"):
-        skill_dir = skill_path.parent
+    seen = set()
+    for md_path in skills_dir_path.rglob("*"):
+        if not md_path.is_file() or md_path.name.lower() != "skill.md":
+            continue
+        skill_dir = md_path.parent
+        key = str(skill_dir).lower()
+        if key in seen:
+            continue
+        seen.add(key)
         skill_name = skill_dir.name
-        desc = ""
-        if skill_path.exists():
-            content = skill_path.read_text(encoding="utf-8")
-            lines = content.split("\n")
-            for i, line in enumerate(lines):
-                if line.strip().startswith("## Description") and i + 1 < len(lines):
-                    desc = lines[i + 1].strip()
-                    break
+        content = md_path.read_text(encoding="utf-8")
+        desc = parse_skill_description(content)
         skills[skill_name] = {
             "name": skill_name,
             "description": desc or f"{skill_name} skill",
@@ -318,15 +379,54 @@ def load_skills(skills_dir: str = None) -> dict:
     return skills
 
 
+def find_skill_entry(skill_dir: Path) -> Path | None:
+    """定位技能入口脚本：优先 main.py；否则若目录顶层恰好只有一个非下划线开头的 .py 文件，用它作入口；否则 None（视为文档技能）。"""
+    skill_dir = Path(skill_dir)
+    if not skill_dir.is_dir():
+        return None
+    main = skill_dir / "main.py"
+    if main.exists():
+        return main
+    candidates = [
+        p for p in sorted(skill_dir.glob("*.py"))
+        if p.is_file() and not p.name.startswith("_")
+    ]
+    if len(candidates) == 1:
+        return candidates[0]
+    return None
+
+
+def render_doc_skill(skill_name: str, skill_dir: Path, params: dict = None) -> str:
+    """文档型技能（无 main.py）：返回 SKILL.md 指引内容 + 可用资源清单 + 参数提示。"""
+    skill_dir = Path(skill_dir)
+    md = find_skill_md(skill_dir)
+    if md is None:
+        return f"Error: Skill '{skill_name}' not found at {skill_dir}"
+    parts = [md.read_text(encoding="utf-8").rstrip()]
+    resources = list_skill_resources(skill_dir)
+    if resources:
+        parts.append(
+            "\n## Available Resources (read on demand with run_shell)\n"
+            + "\n".join(f"- {r}" for r in resources)
+        )
+    if params:
+        parts.append(
+            f"\n(Note: this is a document-only skill with no executable script; "
+            f"the provided params {list(params.keys())} were not consumed. "
+            f"Follow the instructions above and perform the steps yourself via run_shell.)"
+        )
+    return "\n".join(parts)
+
+
 async def execute_skill(
     skill_name: str, params: dict = None, skill_dir: str = None, timeout: int = 60
 ) -> str:
     params = dict(params) if params else {}
     if skill_dir is None:
         skill_dir = str(get_skills_dir() / skill_name)
-    skill_path = Path(skill_dir) / "main.py"
-    if not skill_path.exists():
-        return f"Error: Skill '{skill_name}' not found at {skill_dir}"
+    skill_path = find_skill_entry(Path(skill_dir))
+    if skill_path is None:
+        return render_doc_skill(skill_name, Path(skill_dir), params)
     settings = load_settings()
     raw = settings.get("run_skills_timeout", 60)
     effective_timeout = timeout if isinstance(timeout, (int, float)) and timeout > 0 else (raw if isinstance(raw, (int, float)) and raw > 0 else 60)
@@ -684,8 +784,8 @@ async def run_skills(skill_name: str = None, params: dict = None, timeout: int =
         if target_skill not in SKILLS:
             return f"Error: Skill '{target_skill}' not found"
         skill_info = SKILLS[target_skill]
-        skill_md_path = Path(skill_info["path"]) / "SKILL.md"
-        if skill_md_path.exists():
+        skill_md_path = find_skill_md(Path(skill_info["path"]))
+        if skill_md_path is not None:
             return skill_md_path.read_text(encoding="utf-8")
         return f"Skill: {target_skill}\nDescription: {skill_info['description']}"
     if skill_name not in SKILLS:

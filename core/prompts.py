@@ -35,11 +35,17 @@ Note: Tool calls are handled via the OpenAI API's tool_calls mechanism, NOT by o
 
 Note: When editing files, try to work from the existing file content and prefer line-level or character-level edits over full rewrites.
 
-### run_skills (Skill execution, three modes)
+### run_skills (Skill execution)
 1. **List skills**: run_skills("__list__")
-2. **View skill details**: run_skills("__info__", {{"skill_name": "current_time"}})
+2. **View skill details (inspect only, does not run)**: run_skills("__info__", {{"skill_name": "current_time"}})
 3. **Execute a skill**: run_skills("current_time")
 4. **Execute with timeout**: run_skills("data_processor", timeout=120)  # default timeout is 60s
+
+Skills come in two kinds:
+- **Script skills** (folder contains main.py): executing runs the script and returns its result.
+- **Document skills** (SKILL.md only, no main.py): executing (mode 3) or __info__ (mode 2) both return the instruction document. When you receive such a document, DO NOT simply relay it to the user — read it, then carry out its steps yourself using run_shell, reading any listed resource files on demand.
+
+Semantic note: __info__ is for inspecting a skill before deciding to use it; executing a document skill is a shortcut that returns the same guidance for you to act on immediately.
 
 ## Available Skills
 {skills_list}

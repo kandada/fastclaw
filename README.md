@@ -100,6 +100,9 @@ FastClaw is built on the core concept of **event-driven agent orchestration**. K
 
 ## Changelog
 
+### v1.1.21 (2026-07-09)
+- 🐛 Fix: Added `python-socks[asyncio]` dependency to fix Lark (Feishu) connection failure when using a SOCKS proxy
+
 ### v1.1.20 (2026-07-03)
 
 ### v1.1.19 (2026-06-29)
