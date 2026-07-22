@@ -1,8 +1,8 @@
 ## Description
-获取当前日期和时间
+Get the current date and time
 
 ## Parameters
-无
+None
 
 ## Example
 run_skills("current_time")

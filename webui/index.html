@@ -115,6 +115,16 @@
         .code-block-wrapper:hover .code-copy-btn { opacity: 0.6; }
         .code-copy-btn:hover { opacity: 1 !important; }
         .code-copy-btn svg { width: 14px; height: 14px; display: block; }
+        .cell-ellipsis {
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            word-break: break-all;
+            line-height: 1.4;
+            max-height: 2.8em;
+        }
     </style>
 </head>
 <body>
@@ -128,6 +138,7 @@
             <el-tabs v-model="activeTab" @tab-change="onTabChange" class="header-tabs">
                 <el-tab-pane label="Chat" name="chat"></el-tab-pane>
                 <el-tab-pane label="Cron" name="cron"></el-tab-pane>
+                <el-tab-pane label="Skills" name="skills"></el-tab-pane>
                 <el-tab-pane label="Settings" name="settings"></el-tab-pane>
             </el-tabs>
         </div>
@@ -348,6 +359,82 @@
                     <template #footer>
                         <el-button @click="cronDialogVisible=false">Cancel</el-button>
                         <el-button type="primary" style="background:#000;border-color:#000" @click="saveCron">Save</el-button>
+                    </template>
+                </el-dialog>
+            </div>
+            <div v-if="activeTab === 'skills'" class="tab-content">
+                <h2 class="page-title">Skills</h2>
+                <p style="color:#666;font-size:12px;margin-bottom:12px">Directory: <code>workspace/skills/user/&lt;name&gt;/SKILL.md</code></p>
+                <div class="toolbar">
+                    <el-button type="primary" style="background:#000;border-color:#000" @click="showSkillDialog()">+ New Skill</el-button>
+                    <el-button @click="loadUserSkills">Refresh</el-button>
+                    <el-button @click="openSkillsDir">Open Skills Dir</el-button>
+                </div>
+                <el-table :data="userSkills" stripe :cell-style="{padding:'6px 8px'}">
+                    <el-table-column label="Name" width="140">
+                        <template #default="{row}">
+                            <div class="cell-ellipsis">
+                                {{ row.name }}
+                                <el-tag v-if="row.is_bundled" type="info" size="small" style="margin-left:4px">built-in</el-tag>
+                            </div>
+                        </template>
+                    </el-table-column>
+                    <el-table-column label="Description" min-width="200">
+                        <template #default="{row}">
+                            <div class="cell-ellipsis" :title="row.description">{{ row.description }}</div>
+                        </template>
+                    </el-table-column>
+                    <el-table-column label="Type" width="100">
+                        <template #default="{row}">
+                            <el-tag :type="row.has_script ? 'warning' : ''" size="small">{{ row.has_script ? 'Script' : 'Document' }}</el-tag>
+                        </template>
+                    </el-table-column>
+                    <el-table-column label="Remote" width="90">
+                        <template #default="{row}">
+                            <span v-if="row.endpoint" style="color:#67c23a">Yes</span>
+                            <span v-else style="color:#c0c4cc">-</span>
+                        </template>
+                    </el-table-column>
+                    <el-table-column label="Secret" width="90">
+                        <template #default="{row}">
+                            <span v-if="row.has_secret" style="color:#e6a23c">Set</span>
+                            <span v-else style="color:#c0c4cc">-</span>
+                        </template>
+                    </el-table-column>
+                    <el-table-column label="Actions" width="150">
+                        <template #default="{row}">
+                            <el-button-group size="small">
+                                <el-button v-if="row.is_bundled" @click="viewSkill(row)">View</el-button>
+                                <el-button v-else @click="showSkillDialog(row)">Edit</el-button>
+                                <el-button v-if="!row.is_bundled" @click="deleteSkill(row.name)" type="danger" plain>Delete</el-button>
+                            </el-button-group>
+                        </template>
+                    </el-table-column>
+                </el-table>
+                <el-dialog v-model="skillDialogVisible" :title="skillDialogTitle" width="560px" destroy-on-close>
+                    <el-form :model="skillForm" label-width="130px" :disabled="isViewOnly">
+                        <el-form-item label="Name">
+                            <el-input v-model="skillForm.name" :disabled="!!editingSkill || isViewOnly" placeholder="lowercase_letters_and_digits_only"></el-input>
+                        </el-form-item>
+                        <el-form-item label="Description">
+                            <el-input v-model="skillForm.description" placeholder="One-line description of the skill"></el-input>
+                        </el-form-item>
+                        <el-form-item label="Parameters">
+                            <el-input v-model="skillForm.parameters" type="textarea" :rows="3" placeholder="- param1: description&#10;- param2: description"></el-input>
+                        </el-form-item>
+                        <el-form-item label="Example">
+                            <el-input v-model="skillForm.example" type="textarea" :rows="2" placeholder="run_skills(&quot;skill_name&quot;, {&quot;param1&quot;: &quot;value1&quot;})"></el-input>
+                        </el-form-item>
+                        <el-form-item label="Remote Endpoint">
+                            <el-input v-model="skillForm.endpoint" placeholder="Optional: https://api.example.com/v1"></el-input>
+                        </el-form-item>
+                        <el-form-item label="Secret / API Key">
+                            <el-input v-model="skillForm.secret" type="password" show-password :placeholder="editingSkill && editingSkill.has_secret ? 'Leave empty to keep existing secret' : 'Optional: your API key'"></el-input>
+                        </el-form-item>
+                    </el-form>
+                    <template #footer>
+                        <el-button @click="skillDialogVisible=false">Close</el-button>
+                        <el-button v-if="!isViewOnly" type="primary" style="background:#000;border-color:#000" @click="saveSkill">Save</el-button>
                     </template>
                 </el-dialog>
             </div>
@@ -610,6 +697,16 @@
                 const cronInterval = ref(1);
                 const cronDayOfMonth = ref(1);
                 const showCronTime = computed(() => cronFrequency.value !== 'every_n_hours' && cronFrequency.value !== 'every_n_minutes');
+                const userSkills = ref([]);
+                const skillDialogVisible = ref(false);
+                const editingSkill = ref(null);
+                const isViewOnly = ref(false);
+                const skillForm = ref({ name: '', description: '', parameters: '', example: '', endpoint: '', secret: '' });
+                const skillDialogTitle = computed(() => {
+                    if (isViewOnly.value) return 'View Skill';
+                    if (editingSkill.value) return 'Edit Skill';
+                    return 'New Skill';
+                });
                 const agents = ref([]);
                 const settings = ref({ default_agent_id: 'main_agent', run_shell_timeout: 60, run_skills_timeout: 60, extra_workspaces: [] });
                 const newExtraWorkspace = ref('');
@@ -1409,6 +1506,111 @@
                     } catch (e) { ElementPlus.ElMessage.error('Failed'); }
                 }
 
+                async function loadUserSkills() {
+                    try {
+                        const r = await fetch('/api/skills/user');
+                        userSkills.value = (await r.json()).skills || [];
+                    } catch (e) { console.error(e); }
+                }
+
+                async function showSkillDialog(skill = null) {
+                    isViewOnly.value = false;
+                    if (skill) {
+                        editingSkill.value = skill;
+                        skillForm.value = {
+                            name: skill.name,
+                            description: skill.description || '',
+                            parameters: skill.parameters || '',
+                            example: skill.example || '',
+                            endpoint: skill.endpoint || '',
+                            secret: '',
+                        };
+                    } else {
+                        editingSkill.value = null;
+                        skillForm.value = { name: '', description: '', parameters: '', example: 'run_skills("my_skill")', endpoint: '', secret: '' };
+                    }
+                    skillDialogVisible.value = true;
+                }
+
+                async function viewSkill(skill) {
+                    isViewOnly.value = true;
+                    editingSkill.value = skill;
+                    try {
+                        const r = await fetch(`/api/skills/user/${encodeURIComponent(skill.name)}`);
+                        if (r.ok) {
+                            const detail = await r.json();
+                            skillForm.value = {
+                                name: detail.name,
+                                description: detail.description || '',
+                                parameters: detail.parameters || '',
+                                example: detail.example || '',
+                                endpoint: detail.endpoint || '',
+                                secret: detail.has_secret ? '●●●● (hidden)' : '',
+                            };
+                        }
+                    } catch (e) {
+                        skillForm.value = { name: skill.name, description: skill.description || '', parameters: skill.parameters || '', example: skill.example || '', endpoint: skill.endpoint || '', secret: '' };
+                    }
+                    skillDialogVisible.value = true;
+                }
+
+                async function saveSkill() {
+                    const form = skillForm.value;
+                    if (!form.name || !form.name.trim()) {
+                        ElementPlus.ElMessage.error('Skill name is required');
+                        return;
+                    }
+                    if (!/^[a-z][a-z0-9_]*$/.test(form.name.trim())) {
+                        ElementPlus.ElMessage.error('Name: lowercase letters, digits and underscores only (e.g. my_skill)');
+                        return;
+                    }
+                    const payload = {
+                        name: form.name.trim(),
+                        description: form.description || '',
+                        parameters: form.parameters || '',
+                        example: form.example || '',
+                        endpoint: form.endpoint || '',
+                        secret: form.secret || '',
+                    };
+                    try {
+                        if (editingSkill.value) {
+                            const r = await fetch(`/api/skills/user/${encodeURIComponent(editingSkill.value.name)}`, {
+                                method: 'PUT',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify(payload),
+                            });
+                            if (!r.ok) { const e = await r.json(); throw new Error(e.detail); }
+                            ElementPlus.ElMessage.success('Skill updated');
+                        } else {
+                            const r = await fetch('/api/skills/user', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify(payload),
+                            });
+                            if (!r.ok) { const e = await r.json(); throw new Error(e.detail); }
+                            ElementPlus.ElMessage.success('Skill created');
+                        }
+                        skillDialogVisible.value = false;
+                        loadUserSkills();
+                    } catch (e) { ElementPlus.ElMessage.error(e.message); }
+                }
+
+                async function deleteSkill(name) {
+                    try {
+                        await ElementPlus.ElMessageBox.confirm(`Delete skill "${name}"?`, 'Confirm', { type: 'warning' });
+                        await fetch(`/api/skills/user/${encodeURIComponent(name)}`, { method: 'DELETE' });
+                        ElementPlus.ElMessage.success('Deleted');
+                        loadUserSkills();
+                    } catch (e) { if (e !== 'cancel') { ElementPlus.ElMessage.error('Failed to delete'); } }
+                }
+
+                async function openSkillsDir() {
+                    try {
+                        await fetch('/api/skills/user/open_dir', { method: 'POST' });
+                        ElementPlus.ElMessage.success('Skills directory opened');
+                    } catch (e) { ElementPlus.ElMessage.error('Failed to open'); }
+                }
+
                 async function loadAgents() {
                     try {
                         const r = await fetch('/api/agents');
@@ -1522,6 +1724,7 @@
 
                 function onTabChange(tab) {
                     if (tab === 'cron') { loadCronTasks(); loadAgents(); }
+                    if (tab === 'skills') { loadUserSkills(); }
                     if (tab === 'settings') { loadSettings(); loadAgents(); }
                     if (tab === 'chat') {
                         loadSessions().then(() => {
@@ -1606,12 +1809,14 @@
                     isStreaming, isSending, wsConnected, searchText, filteredSessions, unreadCounts,
                     cronTasks, cronDialogVisible, editingCron, cronForm,
                     cronAdvanced, cronFrequency, cronTime, cronDays, cronInterval, cronDayOfMonth, showCronTime,
+                    userSkills, skillDialogVisible, editingSkill, isViewOnly, skillForm, skillDialogTitle,
                     agents, settings,
                     bindAgentDialogVisible, bindAgentForm,
                     renameDialogVisible, renameForm,
                     agentDialogVisible, editingAgent, agentForm,
                     formatTime, getMsgContent, loadSessions, loadUnreadCounts, createSession, selectSession, selectLatestSession, sendMessage, stopGeneration, clearSession, deleteSession,
                     loadCronTasks, showCronDialog, saveCron, deleteCron, toggleCron, triggerCron,
+                    loadUserSkills, showSkillDialog, viewSkill, saveSkill, deleteSkill, openSkillsDir,
                     loadAgents, loadSettings, saveSettings, resetSettings, onTabChange,
                     showBindAgentDialog, bindAgent, showRenameDialog, renameSession, showAgentDialog, saveAgent, deleteAgent,
                     copyMessage, handleSessionMenu, newExtraWorkspace, addExtraWorkspace, removeExtraWorkspace,

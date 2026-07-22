@@ -5,8 +5,12 @@
 
 import asyncio
 import json
+import os
+import platform
+import re
 import shutil
 import socket
+import subprocess
 import time
 import uuid
 from pathlib import Path
@@ -27,6 +31,7 @@ if _IS_PACKAGE_MODE:
         get_agents_dir,
         get_cron_dir,
         get_session_store,
+        get_skills_dir,
     )
 else:
     from gateway.event_bus import EventBus, get_event_bus, set_event_bus
@@ -37,6 +42,7 @@ else:
         get_agents_dir,
         get_cron_dir,
         get_session_store,
+        get_skills_dir,
     )
 
 router = APIRouter()
@@ -189,7 +195,229 @@ async def list_skills():
     }
 
 
-@router.get("/api/agents")
+_SKILL_SECTION_RE = re.compile(r'^##\s+(.+)$', re.MULTILINE)
+
+
+def _parse_skill_sections(content: str) -> dict:
+    sections = {}
+    lines = content.split('\n')
+    current_key = None
+    current_lines = []
+    in_fence = False
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith('```'):
+            in_fence = not in_fence
+            if current_key and not in_fence:
+                current_lines.append(line)
+            continue
+        if in_fence:
+            if current_key:
+                current_lines.append(line)
+            continue
+        m = _SKILL_SECTION_RE.match(line)
+        if m:
+            if current_key:
+                sections[current_key] = '\n'.join(current_lines).strip()
+            current_key = m.group(1)
+            current_lines = []
+        elif current_key:
+            current_lines.append(line)
+    if current_key:
+        sections[current_key] = '\n'.join(current_lines).strip()
+    return sections
+
+
+def _generate_skill_md(description: str, parameters: str, example: str, endpoint: str = "", secret: str = "") -> str:
+    parts = [f"## Description\n{description.strip()}"]
+    if parameters.strip():
+        parts.append(f"## Parameters\n{parameters.strip()}")
+    parts.append(f"## Example\n{example.strip()}")
+    if endpoint.strip():
+        parts.append(f"## Remote Endpoint\n{endpoint.strip()}")
+    if secret.strip():
+        parts.append(f"## Secret\n{secret.strip()}")
+    return "\n\n".join(parts)
+
+
+def _load_skills_from_dir(base_dir: Path, is_bundled: bool = False) -> list:
+    if not base_dir.exists():
+        return []
+    skills = []
+    for skill_path in sorted(base_dir.iterdir()):
+        if not skill_path.is_dir() or skill_path.name.startswith("_"):
+            continue
+        md_path = skill_path / "SKILL.md"
+        if not md_path.exists():
+            continue
+        content = md_path.read_text(encoding="utf-8")
+        sections = _parse_skill_sections(content)
+        has_script = (skill_path / "main.py").exists()
+        skills.append({
+            "name": skill_path.name,
+            "description": sections.get("Description", ""),
+            "parameters": sections.get("Parameters", ""),
+            "example": sections.get("Example", ""),
+            "endpoint": sections.get("Remote Endpoint", ""),
+            "has_secret": "Secret" in sections,
+            "has_script": has_script,
+            "type": "script" if has_script else "document",
+            "is_bundled": is_bundled,
+        })
+    return skills
+
+
+def _load_all_skills() -> list:
+    skills_dir = get_skills_dir()
+    bundled = _load_skills_from_dir(skills_dir / "bundled", is_bundled=True)
+    user = _load_skills_from_dir(skills_dir / "user", is_bundled=False)
+    return bundled + user
+
+
+@router.get("/api/skills/user")
+async def list_user_skills():
+    return {"skills": _load_all_skills()}
+
+
+@router.post("/api/skills/user/open_dir")
+async def open_user_skills_dir():
+    skills_dir = get_skills_dir()
+    user_dir = skills_dir / "user"
+    user_dir.mkdir(parents=True, exist_ok=True)
+    path_str = str(user_dir.resolve())
+
+    try:
+        system = platform.system()
+        if system == "Darwin":
+            subprocess.Popen(["open", path_str])
+        elif system == "Windows":
+            os.startfile(path_str)
+        else:
+            subprocess.Popen(["xdg-open", path_str])
+        return {"status": "opened", "path": path_str}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to open directory: {e}")
+
+
+@router.get("/api/skills/user/{name}")
+async def get_user_skill(name: str):
+    skills_dir = get_skills_dir()
+    for sub in ["user", "bundled"]:
+        skill_dir = skills_dir / sub / name
+        md_path = skill_dir / "SKILL.md"
+        if md_path.exists():
+            content = md_path.read_text(encoding="utf-8")
+            sections = _parse_skill_sections(content)
+            has_script = (skill_dir / "main.py").exists()
+            return {
+                "name": name,
+                "description": sections.get("Description", ""),
+                "parameters": sections.get("Parameters", ""),
+                "example": sections.get("Example", ""),
+                "endpoint": sections.get("Remote Endpoint", ""),
+                "has_secret": "Secret" in sections,
+                "has_script": has_script,
+                "type": "script" if has_script else "document",
+                "is_bundled": sub == "bundled",
+            }
+    raise HTTPException(status_code=404, detail=f"Skill '{name}' not found")
+
+
+@router.post("/api/skills/user")
+async def create_user_skill(data: dict):
+    name = (data.get("name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Skill name is required")
+    if not re.match(r'^[a-z][a-z0-9_]*$', name):
+        raise HTTPException(status_code=400, detail="Skill name must be lowercase letters, digits and underscores only (e.g. my_skill)")
+
+    skills_dir = get_skills_dir()
+    user_dir = skills_dir / "user"
+    user_dir.mkdir(parents=True, exist_ok=True)
+
+    bundled_skills = set()
+    bundled_dir = skills_dir / "bundled"
+    if bundled_dir.exists():
+        for p in bundled_dir.iterdir():
+            if p.is_dir():
+                bundled_skills.add(p.name)
+
+    existing_user = [s for s in _load_skills_from_dir(user_dir) if s["name"] == name]
+    if name in bundled_skills:
+        raise HTTPException(status_code=409, detail=f"Skill '{name}' conflicts with a bundled skill")
+    if existing_user:
+        raise HTTPException(status_code=409, detail=f"Skill '{name}' already exists")
+
+    description = data.get("description", "")
+    parameters = data.get("parameters", "")
+    example = data.get("example", "")
+    endpoint = data.get("endpoint", "")
+    secret = data.get("secret", "")
+
+    skill_dir_path = user_dir / name
+    skill_dir_path.mkdir(parents=True, exist_ok=True)
+    md_content = _generate_skill_md(description, parameters, example, endpoint, secret)
+    (skill_dir_path / "SKILL.md").write_text(md_content, encoding="utf-8")
+
+    if __package__ in (None, ""):
+        from core.app import _try_register_skill
+    else:
+        from fastclaw.core.app import _try_register_skill
+    _try_register_skill(name)
+
+    return {"status": "created", "name": name}
+
+
+@router.put("/api/skills/user/{name}")
+async def update_user_skill(name: str, data: dict):
+    skills_dir = get_skills_dir()
+    skill_dir = skills_dir / "user" / name
+    md_path = skill_dir / "SKILL.md"
+    if not md_path.exists():
+        bundled_dir = skills_dir / "bundled" / name
+        if (bundled_dir / "SKILL.md").exists():
+            raise HTTPException(status_code=403, detail=f"Bundled skill '{name}' cannot be modified")
+        raise HTTPException(status_code=404, detail=f"Skill '{name}' not found")
+
+    description = data.get("description", "")
+    parameters = data.get("parameters", "")
+    example = data.get("example", "")
+    endpoint = data.get("endpoint", "")
+    secret = data.get("secret", "")
+
+    if not secret.strip():
+        content = md_path.read_text(encoding="utf-8")
+        sections = _parse_skill_sections(content)
+        secret = sections.get("Secret", "")
+
+    md_content = _generate_skill_md(description, parameters, example, endpoint, secret)
+    md_path.write_text(md_content, encoding="utf-8")
+
+    return {"status": "updated", "name": name}
+
+
+@router.delete("/api/skills/user/{name}")
+async def delete_user_skill(name: str):
+    skills_dir = get_skills_dir()
+    skill_dir = skills_dir / "user" / name
+    if not skill_dir.exists():
+        bundled_dir = skills_dir / "bundled" / name
+        if bundled_dir.exists():
+            raise HTTPException(status_code=403, detail=f"Bundled skill '{name}' cannot be deleted")
+        raise HTTPException(status_code=404, detail=f"Skill '{name}' not found")
+
+    shutil.rmtree(skill_dir)
+
+    if __package__ in (None, ""):
+        from core.app import SKILLS
+    else:
+        from fastclaw.core.app import SKILLS
+    if name in SKILLS:
+        del SKILLS[name]
+
+    return {"status": "deleted", "name": name}
+
+
 async def list_agents():
     """列出所有 Agent"""
     agents_dir = get_agents_dir()

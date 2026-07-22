@@ -11,7 +11,9 @@
 
 import json
 import locale
+import shutil
 import sys
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -174,6 +176,21 @@ class TestSessionStoreEncoding:
         store.save(test_data)
         loaded = store.load()
         assert loaded == test_data
+
+        # 安全卫士：确认写入的是临时目录，而不是真实 sessions.json
+        real_sessions = Path(__file__).parent.parent.parent / "workspace" / "data" / "sessions"
+        if real_sessions.exists():
+            real_json = real_sessions / "sessions.json"
+            if real_json.exists():
+                mtime = datetime.fromtimestamp(real_json.stat().st_mtime)
+                if datetime.now() - mtime < timedelta(seconds=10):
+                    real_jsonbak = real_sessions / "sessions.json.bak"
+                    shutil.copy(real_json, real_jsonbak)
+                    real_json.write_text(json.dumps({}), encoding="utf-8")
+                    pytest.fail(
+                        "SAFETY: session store wrote to REAL sessions.json! "
+                        "Saved to sessions.json.bak. Monkeypatch may have failed."
+                    )
 
 
 class TestSettingsEncoding:

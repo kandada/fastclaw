@@ -369,6 +369,8 @@ def load_skills(skills_dir: str = None) -> dict:
             continue
         seen.add(key)
         skill_name = skill_dir.name
+        if skill_name.startswith("_"):
+            continue
         content = md_path.read_text(encoding="utf-8")
         desc = parse_skill_description(content)
         skills[skill_name] = {
@@ -476,6 +478,23 @@ async def execute_skill(
         return f"Error: Skill '{skill_name}' has no executable function"
     except Exception as e:
         return f"Error executing skill '{skill_name}': {str(e)}"
+
+
+def _try_register_skill(skill_name: str) -> bool:
+    skills_dir = get_skills_dir()
+    for md_path in skills_dir.rglob("*"):
+        if not md_path.is_file() or md_path.name.lower() != "skill.md":
+            continue
+        if md_path.parent.name == skill_name:
+            content = md_path.read_text(encoding="utf-8")
+            desc = parse_skill_description(content)
+            SKILLS[skill_name] = {
+                "name": skill_name,
+                "description": desc or f"{skill_name} skill",
+                "path": str(md_path.parent),
+            }
+            return True
+    return False
 
 
 app = FastMind()
@@ -771,6 +790,8 @@ async def run_skills(skill_name: str = None, params: dict = None, timeout: int =
     # (c) 2024-2026 xiefujin <490021684@qq.com> GPLv3
     params = params or {}
     if skill_name in ("__list__", "list", None, ""):
+        SKILLS.clear()
+        SKILLS.update(load_skills())
         if not SKILLS:
             return "No skills available"
         lines = ["Available skills:"]
@@ -781,14 +802,14 @@ async def run_skills(skill_name: str = None, params: dict = None, timeout: int =
         target_skill = params.get("skill_name", "")
         if not target_skill:
             return "Error: skill_name is required for __info__ mode"
-        if target_skill not in SKILLS:
+        if target_skill not in SKILLS and not _try_register_skill(target_skill):
             return f"Error: Skill '{target_skill}' not found"
         skill_info = SKILLS[target_skill]
         skill_md_path = find_skill_md(Path(skill_info["path"]))
         if skill_md_path is not None:
             return skill_md_path.read_text(encoding="utf-8")
         return f"Skill: {target_skill}\nDescription: {skill_info['description']}"
-    if skill_name not in SKILLS:
+    if skill_name not in SKILLS and not _try_register_skill(skill_name):
         return f"Error: Skill '{skill_name}' not found"
     skill_info = SKILLS[skill_name]
     skill_path = skill_info["path"]
@@ -930,8 +951,9 @@ async def fastclaw_agent(state: dict, event: Event) -> dict:
     client = _get_llm_client(llm_config)
 
     extra_workspaces = agent_config.get("extra_workspaces", [])
+    skills_list = "\n".join([f"- {name}: {info['description']}" for name, info in SKILLS.items()]) or "- (No built-in skills)"
     system_prompt = format_system_prompt(
-        SKILLS_LIST, session_id, state.get("_personality", ""), extra_workspaces,
+        skills_list, session_id, state.get("_personality", ""), extra_workspaces,
         workspace_path=str(get_workspace_path()),
     )
 

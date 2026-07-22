@@ -100,6 +100,16 @@ FastClaw is built on the core concept of **event-driven agent orchestration**. K
 
 ## Changelog
 
+### v1.1.22 (2026-07-22)
+- ✨ New: `skill_creator` bundled meta-skill — guides the agent to create, update and optimize skills via chat
+- ✨ New: Skills management tab in WebUI — create and edit user skills with Remote Endpoint / Secret support
+- ✨ New: Skills CRUD API endpoints (`/api/skills/user`) — create, read, update, delete user skills
+- ✨ New: Hot-reload for skills — new skills are auto-registered at runtime, no restart needed
+- ✨ New: "Open Skills Dir" button in WebUI to open the skills directory in file explorer
+- 🔧 Improvement: All bundled skill documentation (SKILL.md) translated to English
+- 🔧 Improvement: Template `_template` excluded from skill lists
+- 🐛 Fix: Skills list in system prompt now updates when new skills are created
+
 ### v1.1.21 (2026-07-09)
 - 🐛 Fix: Added `python-socks[asyncio]` dependency to fix Lark (Feishu) connection failure when using a SOCKS proxy
 

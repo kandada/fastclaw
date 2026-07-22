@@ -100,6 +100,16 @@ FastClaw 基于**事件驱动的 Agent 编排**核心概念。主要设计原则
 
 ## 更新日志
 
+### v1.1.22 (2026-07-22)
+- ✨ 新增：`skill_creator` 预置元技能 — 指导 agent 通过聊天创建、更新和优化技能
+- ✨ 新增：WebUI Skills 管理标签页 — 创建和编辑用户技能，支持 Remote Endpoint / Secret 字段
+- ✨ 新增：Skills CRUD API 接口（`/api/skills/user`）— 创建、读取、更新、删除用户技能
+- ✨ 新增：技能热重载 — 新技能运行时自动注册，无需重启服务
+- ✨ 新增：WebUI "Open Skills Dir" 按钮一键打开技能目录
+- 🔧 优化：所有预置技能文档（SKILL.md）翻译为英文
+- 🔧 优化：模板 `_template` 从技能列表中排除
+- 🐛 修复：系统提示词中技能列表现在随新技能创建自动更新
+
 ### v1.1.21 (2026-07-09)
 - 🐛 修复：新增 `python-socks[asyncio]` 依赖，解决使用 SOCKS 代理时飞书连接失败的问题
 
