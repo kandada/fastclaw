@@ -170,6 +170,13 @@ Copyright (c) 2024-2026 xiefujin. All rights reserved.
 
 [https://www.fastclaw.world/](https://www.fastclaw.world/) | [https://fastclaw-ai.com/](https://fastclaw-ai.com/)
 
+## FastMind Ecosystem
+
+FastClaw is part of the [FastMind](https://github.com/kandada/fastmind) ecosystem. Other projects built on FastMind:
+
+- [**FastClaw**](https://github.com/kandada/fastclaw) — A lightweight, general-purpose AI Agent framework with event-driven agent orchestration, graph-based agent design, and extensible tool system
+- [**FastBot**](https://github.com/kandada/fastbot) — A dual-loop embodied intelligence robot simulation demo, exploring perception-action closed-loop control with LLM-driven decision making
+
 ## Acknowledgments
 
 Inspired by [OpenClaw](https://github.com/openclaw/openclaw). Special thanks to the open source community.

@@ -170,6 +170,13 @@ GPL-3.0
 
 [https://www.fastclaw.world/](https://www.fastclaw.world/) | [https://fastclaw-ai.com/](https://fastclaw-ai.com/)
 
+## FastMind 生态
+
+FastClaw 是 [FastMind](https://github.com/kandada/fastmind) 生态系统的一部分。其他基于 FastMind 的作品：
+
+- [**FastClaw**](https://github.com/kandada/fastclaw) — 一款轻量级通用 AI Agent 框架，支持事件驱动编排、图式 Agent 设计和可扩展工具系统
+- [**FastBot**](https://github.com/kandada/fastbot) — 双循环具身智能机器人仿真 demo，探索 LLM 驱动的感知-行动闭环控制
+
 ## 致谢
 
 受 [OpenClaw](https://github.com/openclaw/openclaw) 启发。感谢开源社区。
