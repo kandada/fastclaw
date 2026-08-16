@@ -871,6 +871,9 @@ async def fastclaw_agent(state: dict, event: Event) -> dict:
             state["_personality"] = personality
 
     user_text = event.payload.get("text", "")
+    msg_id = event.payload.get("message_id")
+    if msg_id:
+        state["_message_id"] = msg_id
 
     if state.get("tool_results"):
         tool_calls_map = {}
@@ -928,13 +931,24 @@ async def fastclaw_agent(state: dict, event: Event) -> dict:
         if "tool_calls" in state:
             del state["tool_calls"]
 
-    user_messages = [
-        m
-        for m in state["messages"]
-        if m.get("role") == "user" and m.get("content") == user_text
-    ]
-    if not user_messages:
+    # 去重：agent↔tools 循环中同一事件会被多次调用，需判断是否为新用户消息。
+    # 用 message_id 精确去重，避免 content 去重把「连续两条相同内容的消息」误判为重复而丢失。
+    is_new_message = True
+    if msg_id is not None:
+        is_new_message = state.get("_last_user_msg_id") != msg_id
+    else:
+        # 无 message_id（旧渠道）：退回 content 去重
+        is_new_message = not any(
+            m.get("role") == "user" and m.get("content") == user_text
+            for m in state["messages"]
+        )
+    if is_new_message:
+        if msg_id is not None:
+            state["_last_user_msg_id"] = msg_id
         state["messages"].append({"role": "user", "content": user_text})
+        # 立即持久化 user 消息，确保 cron 触发 / 会话切换时用户消息立即可见，
+        # 而不必等 LLM 流式完成后才落盘（否则进行中点进去会看不到这条 user 消息）
+        await _save_messages_async(session_id, state["messages"])
 
     agent_config = state.get("_agent_config", {})
     context_config = agent_config.get("context", {})
@@ -985,7 +999,7 @@ async def fastclaw_agent(state: dict, event: Event) -> dict:
                 output_queue.put_nowait(
                     Event(
                         type="stream.thinking",
-                        payload={"delta": delta.reasoning_content},
+                        payload={"delta": delta.reasoning_content, "message_id": msg_id},
                         session_id=session_id,
                     )
                 )
@@ -996,7 +1010,7 @@ async def fastclaw_agent(state: dict, event: Event) -> dict:
                     output_queue.put_nowait(
                         Event(
                             type="stream.chunk",
-                            payload={"delta": delta.content},
+                            payload={"delta": delta.content, "message_id": msg_id},
                             session_id=session_id,
                         )
                     )
@@ -1059,13 +1073,18 @@ async def fastclaw_agent(state: dict, event: Event) -> dict:
                         "content": full_content,
                         "has_tool_calls": True,
                         "tool_calls": tool_calls_buffer,
+                        "message_id": msg_id,
                     },
                     session_id=session_id,
                 )
             )
         else:
             output_queue.put_nowait(
-                Event(type="stream.end", payload={}, session_id=session_id)
+                Event(
+                    type="stream.end",
+                    payload={"message_id": msg_id},
+                    session_id=session_id,
+                )
             )
 
         if full_content or has_tool_calls:
@@ -1091,7 +1110,11 @@ async def fastclaw_agent(state: dict, event: Event) -> dict:
         except Exception:
             pass
         output_queue.put_nowait(
-            Event(type="stream.end", payload={}, session_id=session_id)
+            Event(
+                type="stream.end",
+                payload={"message_id": msg_id},
+                session_id=session_id,
+            )
         )
         return state
 
@@ -1099,13 +1122,46 @@ async def fastclaw_agent(state: dict, event: Event) -> dict:
         if "tool_calls" in state:
             del state["tool_calls"]
         output_queue.put_nowait(
-            Event(type="stream.error", payload={"error": str(e)}, session_id=session_id)
+            Event(
+                type="stream.error",
+                payload={"error": str(e), "message_id": msg_id},
+                session_id=session_id,
+            )
         )
 
     return state
 
 
-tool_node = ToolNode(app.get_tools())
+class ToolNodeWithEvents(ToolNode):
+    """工具执行节点：执行工具并实时发出 stream.tool_result 事件
+
+    在 ToolNode 基础上，工具执行完成后将结果通过事件流推送，
+    供 WebUI / 渠道端实时展示工具输出（与写入 jsonl 的内容一致）。
+    """
+
+    async def execute(self, state: dict, event: Event):
+        new_state, output_events = await super().execute(state, event)
+        results = new_state.get("tool_results") or []
+        session_id = state.get("_session_id") or event.session_id
+        msg_id = state.get("_message_id") or event.payload.get("message_id")
+        if results:
+            for r in results:
+                output_events.append(
+                    Event(
+                        type="stream.tool_result",
+                        payload={
+                            "tool_call_id": r.get("tool_call_id", ""),
+                            "tool_name": r.get("tool_name", ""),
+                            "result": r.get("result", ""),
+                            "message_id": msg_id,
+                        },
+                        session_id=session_id,
+                    )
+                )
+        return new_state, output_events
+
+
+tool_node = ToolNodeWithEvents(app.get_tools())
 
 
 def route(state: dict, event: Event) -> str:

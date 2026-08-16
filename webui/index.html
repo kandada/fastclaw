@@ -31,6 +31,8 @@
         .session-time { font-size: 11px; color: #888; }
         .session-menu { opacity: 0; padding: 4px 8px; border-radius: 4px; }
         .sidebar-footer { padding: 10px 16px; border-top: 1px solid #e0e0e0; font-size: 11px; color: #999; text-align: center; line-height: 1.6; }
+        .sidebar-footer .footer-link { color: #999; text-decoration: none; transition: color .15s; }
+        .sidebar-footer .footer-link:hover { color: #667eea; text-decoration: underline; }
         .session-item:hover .session-menu { opacity: 1; }
         .session-menu:hover { background: #d0d0d0; }
         .chat-main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
@@ -39,6 +41,9 @@
         .message { margin-bottom: 16px; display: flex; flex-direction: column; }
         .message-user { align-items: flex-end; }
         .message-assistant { align-items: flex-start; }
+        .msg-time { font-size: 11px; color: #aaa; margin-bottom: 4px; user-select: none; }
+        .message-user .msg-time { align-self: flex-end; padding-right: 2px; }
+        .message-assistant .msg-time { align-self: flex-start; padding-left: 2px; }
         .msg-content { border-radius: 12px; font-size: 14px; line-height: 1.55; word-break: break-word; text-align: left; display: block; overflow-x: hidden; max-width: 100%; }
         .message-user .msg-content { background: #000; color: #fff; padding: 10px 14px; }
         .message-assistant .msg-content { background: #fafafa; border-left: 3px solid #667eea; border-radius: 8px; padding: 12px 16px; }
@@ -86,21 +91,12 @@
         .msg-content th, .msg-content td { border: 1px solid #ddd; padding: 8px 12px; text-align: left; }
         .msg-content th { background: #f5f5f5; font-weight: 600; }
         .msg-content tr:nth-child(even) { background: #fafafa; }
-        .msg-content .tool-execution { background: #f0f0f0; border-left: 3px solid #666; border-radius: 4px; padding: 8px 12px; margin: 8px 0; font-family: monospace; font-size: 13px; white-space: pre-wrap; word-break: break-word; color: #333; overflow: hidden; }
-        .thinking-content { color: #777; font-size: 14px; line-height: 1.55; background: #f6f6f6; border-left: 3px solid #ddd; border-radius: 6px; padding: 10px 14px; margin: 8px 0; word-break: break-word; text-align: left; }
-        .thinking-content p { margin: 4px 0; }
-        .thinking-content h1, .thinking-content h2, .thinking-content h3, .thinking-content h4, .thinking-content h5, .thinking-content h6 { color: #666; }
-        .thinking-content code { background: #dedede; }
-        .thinking-content pre { background: #dedede; }
-        .thinking-content pre code { background: none; }
-        .thinking-content blockquote { border-left-color: #ccc; color: #999; }
-        .message.streaming .msg-content::after { content: '|'; color: #666; font-weight: bold; animation: blink 1s infinite; margin-left: 2px; }
+        .stream-cursor { color: #666; font-weight: bold; animation: blink 1s infinite; margin-left: 2px; }
         @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
         .sending-dots span { display: inline-block; width: 6px; height: 6px; margin: 0 2px; background: #999; border-radius: 50%; animation: sending-bounce 1.4s infinite; }
         .sending-dots span:nth-child(2) { animation-delay: 0.2s; }
         .sending-dots span:nth-child(3) { animation-delay: 0.4s; }
         @keyframes sending-bounce { 0%, 80%, 100% { transform: scale(0.6); } 40% { transform: scale(1); } }
-        .tool-content { color: #999; font-size: 13px; margin-bottom: 8px; white-space: pre-wrap; word-break: break-word; text-align: left; }
         .tool-output-container { background: #f8f8f8; border-left: 3px solid #999; border-radius: 4px; padding: 6px 12px; margin: 4px 0; overflow: hidden; }
         .tool-output-header { color: #666; font-size: 12px; font-weight: 500; margin-bottom: 4px; }
         .msg-content .tool-output-content { margin: 0; white-space: pre-wrap; word-break: break-word; font-size: 13px; color: #333; background: transparent; padding: 0; border-radius: 0; overflow-x: auto; max-width: 100%; }
@@ -125,6 +121,126 @@
             line-height: 1.4;
             max-height: 2.8em;
         }
+        /* ===== 统一消息块模型 ===== */
+        .user-text { white-space: pre-wrap; word-break: break-word; }
+        .msg-block { margin: 6px 0; }
+        .text-block { margin: 2px 0; }
+        .text-block > div > :first-child { margin-top: 0; }
+        .text-block > div > :last-child { margin-bottom: 0; }
+        .block-card {
+            position: relative;
+            border: 1px solid #e4e4e7;
+            border-radius: 8px;
+            background: #fafafa;
+            overflow: hidden;
+            margin: 6px 0;
+            transition: border-color .15s, background .15s;
+        }
+        .block-card summary {
+            display: flex; align-items: center; gap: 6px;
+            cursor: pointer; user-select: none;
+            padding: 6px 10px;
+            list-style: none;
+            font-size: 12.5px; color: #555;
+            min-width: 0;
+        }
+        .block-card summary::-webkit-details-marker { display: none; }
+        .block-card summary:hover { background: #f1f1f3; }
+        .block-card[open] summary { border-bottom: 1px solid #eee; }
+        .block-icon { font-size: 13px; flex-shrink: 0; }
+        .block-title { font-weight: 600; color: #444; flex-shrink: 0; }
+        .block-preview {
+            color: #999; flex: 1; min-width: 0;
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+            font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 11.5px;
+        }
+        .block-meta { color: #aaa; font-size: 11px; flex-shrink: 0; }
+        .block-caret { color: #999; margin-left: 2px; transition: transform .15s; flex-shrink: 0; font-size: 10px; }
+        details[open] .block-caret { transform: rotate(90deg); }
+        .block-status { color: #67c23a; font-weight: 700; flex-shrink: 0; font-size: 12px; }
+        .block-status.running { color: #e6a23c; }
+        .block-copy {
+            background: none; border: none; cursor: pointer; color: #bbb;
+            padding: 2px; line-height: 1; flex-shrink: 0; opacity: 0; transition: opacity .15s;
+        }
+        .block-copy svg { width: 12px; height: 12px; display: block; }
+        /* copy 按钮位于 summary 之外（无障碍：summary 内禁止交互元素），绝对定位回标题行。
+           折叠时隐藏（details 折叠态非 summary 内容布局异常），展开时显示在标题行右侧 */
+        .block-card > .block-copy {
+            position: absolute; right: 22px; top: 6px; z-index: 1;
+            display: none;
+        }
+        .block-card[open] > .block-copy { display: block; }
+        .block-card[open]:hover > .block-copy { opacity: .8; }
+        .block-copy:hover { color: #666; opacity: 1 !important; }
+        .block-body { padding: 8px 10px; font-size: 13px; line-height: 1.55; }
+        .block-body pre {
+            margin: 0; white-space: pre-wrap; word-break: break-word;
+            font-family: "SF Mono", "Fira Code", Menlo, Consolas, monospace;
+            font-size: 12.5px; color: #333;
+        }
+        .thinking-card { border-left: 3px solid #c0c4cc; }
+        .thinking-card[open] { border-left-color: #909399; }
+        .thinking-body { color: #777; }
+        .thinking-body p { margin: 4px 0; }
+        .thinking-body h1, .thinking-body h2, .thinking-body h3, .thinking-body h4, .thinking-body h5, .thinking-body h6 { color: #666; margin-top: 12px; margin-bottom: 8px; }
+        .thinking-body code { background: #e8e8e8; padding: 1px 5px; border-radius: 3px; font-size: 12px; }
+        .thinking-body pre { background: #f0f0f0; padding: 8px; border-radius: 5px; margin: 6px 0; }
+        .thinking-body pre code { background: none; padding: 0; }
+        .thinking-body blockquote { border-left: 3px solid #ccc; padding-left: 10px; margin: 6px 0; color: #999; }
+        .tool-call-card { border-left: 3px solid #e6a23c; }
+        .tool-call-card[open] { border-left-color: #e6a23c; background: #fffaf2; }
+        .tool-call-body pre { color: #7a5a1e; }
+        .tool-result-card { border-left: 3px solid #67c23a; }
+        .tool-result-card[open] { border-left-color: #67c23a; background: #f8fbf5; }
+        .tool-result-body pre { color: #3d5a2a; }
+        .error-block {
+            background: #fef0f0; border: 1px solid #fde2e2; border-left: 3px solid #f56c6c;
+            border-radius: 8px; padding: 10px 12px; margin: 6px 0;
+            font-size: 13px; color: #c45656; white-space: pre-wrap; word-break: break-word;
+        }
+        /* ===== 运行中流动灯条 ===== */
+        .stream-bar-wrap {
+            display: flex; align-items: center; gap: 8px;
+            margin: 0 2px 10px 2px; min-height: 14px;
+        }
+        .stream-bar {
+            position: relative; flex: 1; height: 3px;
+            border-radius: 3px; overflow: hidden;
+            background: #f0f0f2;
+        }
+        .stream-bar::before {
+            content: '';
+            position: absolute; top: 0; left: -35%;
+            width: 35%; height: 100%;
+            background: linear-gradient(90deg, transparent, #667eea, #764ba2, transparent);
+            border-radius: 3px;
+            animation: stream-slide 1.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+        }
+        .stream-bar::after {
+            content: '';
+            position: absolute; top: 0; left: -35%;
+            width: 35%; height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(102, 126, 234, 0.35), transparent);
+            border-radius: 3px;
+            animation: stream-slide 1.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+            animation-delay: 0.4s;
+        }
+        @keyframes stream-slide {
+            0% { left: -35%; }
+            100% { left: 105%; }
+        }
+        .stream-dot {
+            width: 7px; height: 7px; border-radius: 50%;
+            background: #667eea; flex-shrink: 0;
+            animation: stream-dot-pulse 1.2s ease-in-out infinite;
+        }
+        .stream-dot.sending { background: #e6a23c; animation-delay: 0.3s; }
+        @keyframes stream-dot-pulse {
+            0%, 100% { opacity: 0.35; transform: scale(0.85); }
+            50% { opacity: 1; transform: scale(1.15); }
+        }
+        .stream-label { font-size: 11.5px; color: #888; flex-shrink: 0; user-select: none; }
     </style>
 </head>
 <body>
@@ -174,7 +290,7 @@
                     </div>
                     </div>
                     <div class="sidebar-footer">
-                        © xiefujin · GPL-3.0 · 490021684@qq.com
+                        <a href="https://github.com/kandada/fastclaw" target="_blank" rel="noopener noreferrer" class="footer-link">github.com/kandada/fastclaw</a>
                     </div>
                 </div>
                 <div class="chat-main">
@@ -213,12 +329,64 @@
                             </template>
                         </el-dialog>
                         <div class="chat-messages" ref="msgContainer">
-                            <div v-for="(msg, i) in messages" :key="i" class="message" :class="'message-' + msg.role" :data-msg-id="msg.id">
-                                <div class="msg-content" v-html="getMsgContent(msg)"></div>
-                                <div v-if="msg.role === 'assistant'" class="message-actions">
-                                    <button class="msg-copy-btn" @click="copyMessage(msg)" title="Copy">
-                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-                                    </button>
+                            <div v-for="(msg, i) in messages" :key="msg.id || i" class="message" :class="'message-' + msg.role" :data-msg-id="msg.id">
+                                <div class="msg-time" :title="formatFullTime(msg.timestamp)">{{ formatTime(msg.timestamp) }}</div>
+                                <div class="msg-content">
+                                    <template v-if="msg.role === 'user'">
+                                        <div class="user-text">{{ msg.content }}</div>
+                                    </template>
+                                    <template v-else-if="msg.role === 'tool'">
+                                        <div class="tool-output-container">
+                                            <div class="tool-output-header">[{{ msg.tool_name || 'tool' }}]:</div>
+                                            <pre class="tool-output-content">{{ msg.content }}</pre>
+                                        </div>
+                                    </template>
+                                    <template v-else>
+                                        <div v-for="(block, bi) in msg.blocks" :key="bi" class="msg-block" :class="'block-' + block.type">
+                                            <details v-if="block.type === 'thinking'" class="block-card thinking-card" :open="block._open" @toggle="onBlockToggle(block, $event)">
+                                                <summary>
+                                                    <span class="block-icon">💭</span>
+                                                    <span class="block-title">Thinking</span>
+                                                    <span class="block-meta">{{ block.text.length }} chars</span>
+                                                    <span class="block-caret">▸</span>
+                                                </summary>
+                                                <button class="block-copy" @click.stop="copyBlock(block, $event)" title="Copy"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
+                                                <div class="block-body thinking-body" v-html="renderMarkdown(block.text)"></div>
+                                            </details>
+                                            <details v-else-if="block.type === 'tool_call'" class="block-card tool-call-card" :open="block._open" @toggle="onBlockToggle(block, $event)">
+                                                <summary>
+                                                    <span class="block-icon">🔧</span>
+                                                    <span class="block-title">{{ block.name }}</span>
+                                                    <span class="block-preview">{{ block.preview }}</span>
+                                                    <span v-if="block.done" class="block-status">✓</span>
+                                                    <span v-else class="block-status running">…</span>
+                                                    <span class="block-caret">▸</span>
+                                                </summary>
+                                                <button class="block-copy" @click.stop="copyBlock(block, $event)" title="Copy"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
+                                                <div class="block-body tool-call-body"><pre>{{ block.argsText }}</pre></div>
+                                            </details>
+                                            <details v-else-if="block.type === 'tool_result'" class="block-card tool-result-card" :open="block._open" @toggle="onBlockToggle(block, $event)">
+                                                <summary>
+                                                    <span class="block-icon">📦</span>
+                                                    <span class="block-title">{{ block.name }}</span>
+                                                    <span class="block-meta">{{ block.sizeLabel }}</span>
+                                                    <span class="block-caret">▸</span>
+                                                </summary>
+                                                <button class="block-copy" @click.stop="copyBlock(block, $event)" title="Copy"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
+                                                <div class="block-body tool-result-body"><pre>{{ block.text }}</pre></div>
+                                            </details>
+                                            <div v-else-if="block.type === 'text'" class="text-block">
+                                                <div v-html="renderMarkdown(block.text)"></div>
+                                                <span v-if="msg._isStreaming && bi === msg.blocks.length - 1" class="stream-cursor">|</span>
+                                            </div>
+                                            <div v-else-if="block.type === 'error'" class="error-block">{{ block.text }}</div>
+                                        </div>
+                                        <div class="message-actions">
+                                            <button class="msg-copy-btn" @click="copyMessage(msg)" title="Copy">
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                                            </button>
+                                        </div>
+                                    </template>
                                 </div>
                             </div>
                             <div v-if="isSending" class="message message-assistant">
@@ -233,6 +401,11 @@
                             </div>
                         </div>
                         <div class="chat-input-area">
+                            <div v-if="isStreaming || isSending" class="stream-bar-wrap">
+                                <div class="stream-bar"></div>
+                                <span class="stream-dot" :class="{sending: !isStreaming && isSending}"></span>
+                                <span class="stream-label">{{ isStreaming ? 'Generating...' : 'Sending...' }}</span>
+                            </div>
                             <div class="input-row">
                                 <el-input type="textarea" v-model="chatText" :autosize="{ minRows: 2, maxRows: 6 }" placeholder="Type a message... (Enter to send, Shift+Enter for new line)"
                                           @keydown.enter.exact.prevent="sendMessage"></el-input>
@@ -242,7 +415,8 @@
                         </div>
                     </template>
                     <div v-else class="empty-state">
-                        <p>Select a session or create a new one to start chatting</p>
+                        <p>No session selected</p>
+                        <el-button type="primary" style="background:#000;border-color:#000;margin-top:16px" @click="createSession">+ New Chat</el-button>
                     </div>
                 </div>
             </div>
@@ -664,7 +838,7 @@
         }
     </script>
     <script>
-        const { createApp, ref, computed, watch, nextTick, onMounted, onUnmounted } = Vue;
+        const { createApp, ref, computed, watch, nextTick, onMounted, onUnmounted, reactive } = Vue;
         const app = createApp({
             setup() {
                 const activeTab = ref('chat');
@@ -678,8 +852,7 @@
                 const searchText = ref('');
                 let chatEventSource = null;
                 let cronEventSource = null;
-                const messageBuffer = new Map();
-                let currentStreamingMsg = null;
+                const streamingMsgById = new Map();
                 let _recoverMsgId = null;
                 let chatObserver = null;
                 let _chatScrollEl = null;
@@ -737,15 +910,33 @@
 
                 const hasStreamingMessage = computed(() => messages.value.some(m => m._isStreaming));
 
+                // 消息时间戳兼容三种格式：ISO 字符串（历史 jsonl）、秒（后端 time.time）、毫秒（Date.now）
+                function parseMsgTime(ts) {
+                    if (!ts && ts !== 0) return null;
+                    let d;
+                    if (typeof ts === 'string') d = new Date(ts);
+                    else if (ts > 1e12) d = new Date(ts);       // 毫秒
+                    else d = new Date(ts * 1000);               // 秒
+                    return (d && !isNaN(d.getTime())) ? d : null;
+                }
+
                 function formatTime(ts) {
-                    if (!ts) return '';
-                    const d = new Date(ts * 1000);
-                    if (isNaN(d.getTime())) return '';
+                    const d = parseMsgTime(ts);
+                    if (!d) return '';
                     const diff = Date.now() - d.getTime();
                     if (diff < 60000) return 'Just now';
                     if (diff < 3600000) return Math.floor(diff / 60000) + 'm ago';
                     if (diff < 86400000) return Math.floor(diff / 3600000) + 'h ago';
+                    if (diff < 7 * 86400000) return Math.floor(diff / 86400000) + 'd ago';
                     return d.toLocaleDateString();
+                }
+
+                function formatFullTime(ts) {
+                    const d = parseMsgTime(ts);
+                    if (!d) return '';
+                    const pad = n => String(n).padStart(2, '0');
+                    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate())
+                        + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
                 }
 
                 function renderMarkdown(text) {
@@ -759,75 +950,296 @@
                     return html;
                 }
 
-                function renderPlainText(text) {
-                    if (!text) return '';
-                    return escapeHtml(text).replace(/\n/g, '<br>');
+                // ===== 统一消息块模型 =====
+                function newAssistantMessage(id, extra) {
+                    const raw = Object.assign({
+                        id: id || `msg_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+                        role: 'assistant',
+                        blocks: [],
+                        _isStreaming: false,
+                        timestamp: Date.now()
+                    }, extra || {});
+                    return reactive(raw);
                 }
 
-                function getMsgContent(msg, useMarkdown) {
-                    if (useMarkdown === undefined) useMarkdown = true;
-                    if (msg.role === 'assistant') {
-                        if (msg.segments && msg.segments.length > 0) {
-                            let html = '';
-                            for (const seg of msg.segments) {
-                                if (seg.type === 'thinking') {
-                                    const text = useMarkdown ? renderMarkdown(seg.text) : escapeHtml(seg.text).replace(/\n{3,}/g, '\n\n');
-                                    html += `<div class="thinking-content">[Thinking...] ${text}</div>`;
-                                } else if (seg.type === 'tool') {
-                                    html += `<div class="tool-execution">${escapeHtml(seg.text)}</div>`;
-                                } else if (seg.type === 'text') {
-                                    html += useMarkdown ? renderMarkdown(seg.text) : renderPlainText(seg.text);
-                                }
+                function ensureBlock(msg, type) {
+                    const blocks = msg.blocks;
+                    const last = blocks[blocks.length - 1];
+                    if (last && last.type === type) return last;
+                    const block = { type: type, _open: false };
+                    if (type === 'thinking' || type === 'text') block.text = '';
+                    blocks.push(block);
+                    return block;
+                }
+
+                function prettyJson(args) {
+                    if (args === undefined || args === null) return '';
+                    if (typeof args !== 'string') {
+                        try { return JSON.stringify(args, null, 2); } catch (e) { return String(args); }
+                    }
+                    if (!args.trim()) return '';
+                    try { return JSON.stringify(JSON.parse(args), null, 2); } catch (e) { return args; }
+                }
+
+                function toolCallPreview(tc) {
+                    const fn = (tc && tc.function) || {};
+                    const argsStr = fn.arguments || '';
+                    try {
+                        const obj = JSON.parse(argsStr);
+                        if (obj && typeof obj === 'object') {
+                            const first = Object.values(obj)[0];
+                            if (first !== undefined && first !== null) return String(first).slice(0, 50);
+                        }
+                    } catch (e) {}
+                    return argsStr ? argsStr.slice(0, 50) : '';
+                }
+
+                function ensureToolCallBlock(msg, tc) {
+                    const fn = (tc && tc.function) || {};
+                    const id = (tc && tc.id) || '';
+                    for (const b of msg.blocks) {
+                        if (b.type === 'tool_call' && (b.id === id || (id && b.name === fn.name))) {
+                            if (fn.arguments) {
+                                b.argsText = prettyJson(fn.arguments);
+                                b.preview = toolCallPreview(tc);
                             }
-                            return html;
+                            return b;
                         }
-                        let html = msg.content || '';
-                        if (msg.thinking) {
-                            const thinkingHtml = useMarkdown ? renderMarkdown(msg.thinking) : escapeHtml(msg.thinking);
-                            html = `<div class="thinking-content">[Thinking...] ${thinkingHtml}</div>\n` + html;
-                        }
-                        if (msg.tool_infos && msg.tool_infos.length > 0) {
-                            const toolHtml = msg.tool_infos.map(info =>
-                                `<div class="tool-execution">${escapeHtml(info)}</div>`
-                            ).join('');
-                            html = toolHtml + (html ? '\n' : '') + html;
-                        }
-                        return useMarkdown ? renderMarkdown(html) : renderPlainText(html);
                     }
-                    if (msg.role === 'tool') {
-                        const content = msg.content || '';
-                        const match = content.match(/^\[(run_shell|run_skills)\]:\s*(.*)/s);
-                        if (match) {
-                            const toolName = match[1];
-                            const toolResult = match[2];
-                            const displayResult = toolResult || '(no output)';
-                            return `<div class="tool-output-container"><div class="tool-output-header">[${toolName}]:</div><pre class="tool-output-content">${escapeHtml(displayResult)}</pre></div>`;
-                        }
-                        return `<div class="tool-output-container"><pre class="tool-output-content">${escapeHtml(content)}</pre></div>`;
-                    }
-                    if (msg.role === 'user') {
-                        return escapeHtml(msg.content || '').replace(/\n/g, '<br>');
-                    }
-                    return msg.content || '';
+                    const block = {
+                        type: 'tool_call',
+                        id: id,
+                        name: fn.name || 'tool',
+                        argsText: prettyJson(fn.arguments),
+                        preview: toolCallPreview(tc),
+                        done: false,
+                        _open: true
+                    };
+                    msg.blocks.push(block);
+                    return block;
                 }
 
-                function escapeHtml(text) {
-                    const div = document.createElement('div');
-                    div.textContent = text;
-                    return div.innerHTML;
+                function parseToolContent(text) {
+                    const match = (text || '').match(/^\[([^\]]+)\]:\s*([\s\S]*)$/);
+                    if (match) return { name: match[1], body: match[2] };
+                    return { name: '', body: text || '' };
+                }
+
+                function addToolResultBlock(msg, data) {
+                    const tcId = (data && data.tool_call_id) || '';
+                    const tName = (data && data.tool_name) || '';
+                    for (const b of msg.blocks) {
+                        if (b.type === 'tool_call' && (b.id === tcId || (tcId && b.name === tName))) {
+                            b.done = true;
+                            b._open = false;
+                        }
+                    }
+                    let resultText = (data && data.result) || '';
+                    if (typeof resultText !== 'string') {
+                        try { resultText = JSON.stringify(resultText, null, 2); } catch (e) { resultText = String(resultText); }
+                    }
+                    msg.blocks.push({
+                        type: 'tool_result',
+                        name: tName || 'tool',
+                        text: resultText,
+                        tool_call_id: tcId,
+                        sizeLabel: resultText.length > 0 ? resultText.length + ' B' : '',
+                        _open: true
+                    });
+                }
+
+                // ===== 流式增量 rAF 批量刷新：把高频 chunk 聚合成帧渲染，实现平滑打字机效果 =====
+                // 单一有序增量队列：严格保留事件到达顺序（thinking/text 交替时不错序、不切分）
+                const pendingDeltas = [];
+                let deltaRafId = null;
+                let sendWatchdog = null;
+
+                function clearSendWatchdog() {
+                    if (sendWatchdog) { clearTimeout(sendWatchdog); sendWatchdog = null; }
+                }
+
+                function armSendWatchdog() {
+                    clearSendWatchdog();
+                    // 若 POST 成功后 60s 内既无 message.start 也无 message.end，则复位发送状态
+                    sendWatchdog = setTimeout(() => {
+                        sendWatchdog = null;
+                        if (streamingMsgById.size === 0) {
+                            isSending.value = false;
+                            isStreaming.value = false;
+                        }
+                    }, 60000);
+                }
+
+                function flushPendingDeltas() {
+                    deltaRafId = null;
+                    for (const { msg, type, delta } of pendingDeltas.splice(0)) {
+                        if (type === 'thinking') {
+                            // 推理内容属于消息的"推理通道"：始终累积到同一个 thinking 块，
+                            // 避免 ReAct 多轮思考 / 断点续传时 Thinking 被切分成多张卡片
+                            let b = msg.blocks.find(x => x.type === 'thinking');
+                            if (!b) {
+                                b = { type: 'thinking', text: '', _open: true };
+                                msg.blocks.unshift(b); // 推理通道始终位于消息顶部（与历史重建一致）
+                            }
+                            b.text += delta;
+                            b._open = true;
+                        } else {
+                            ensureBlock(msg, 'text').text += delta;
+                        }
+                    }
+                    scrollBottom();
+                }
+
+                function scheduleDeltaFlush() {
+                    if (deltaRafId !== null) return;
+                    deltaRafId = requestAnimationFrame(flushPendingDeltas);
+                }
+
+                function flushDeltasNow() {
+                    if (deltaRafId !== null) {
+                        cancelAnimationFrame(deltaRafId);
+                        deltaRafId = null;
+                    }
+                    flushPendingDeltas();
+                }
+
+                function queueTextDelta(msg, delta) {
+                    if (!delta) return;
+                    pendingDeltas.push({ msg, type: 'text', delta });
+                    scheduleDeltaFlush();
+                }
+
+                function queueThinkingDelta(msg, delta) {
+                    if (!delta) return;
+                    pendingDeltas.push({ msg, type: 'thinking', delta });
+                    scheduleDeltaFlush();
+                }
+
+                function addErrorBlock(msg, text) {
+                    msg.blocks.push({ type: 'error', text: text || 'Unknown error' });
+                }
+
+                function settleMessage(msg) {
+                    msg._isStreaming = false;
+                    if (msg.blocks) {
+                        msg.blocks.forEach(b => {
+                            if (b.type !== 'text' && b.type !== 'error') b._open = false;
+                        });
+                    }
+                }
+
+                function onBlockToggle(block, evt) {
+                    block._open = !!evt.target.open;
+                }
+
+                function copyText(text) {
+                    if (!text) return;
+                    navigator.clipboard.writeText(text).then(() => {
+                        ElementPlus.ElMessage.success('Copied');
+                    });
+                }
+
+                function copyBlock(block, evt) {
+                    evt.stopPropagation();
+                    let text = '';
+                    if (block.type === 'tool_call') text = block.argsText || '';
+                    else text = block.text || '';
+                    copyText(text);
                 }
 
                 function copyMessage(msg) {
                     let content = '';
-                    if (msg.segments && msg.segments.length > 0) {
-                        content = msg.segments.map(s => s.text || '').join('');
+                    if (msg.blocks && msg.blocks.length) {
+                        content = msg.blocks.map(b => {
+                            if (b.type === 'text' || b.type === 'thinking' || b.type === 'error') return b.text || '';
+                            if (b.type === 'tool_call') return b.argsText || '';
+                            if (b.type === 'tool_result') return b.text || '';
+                            return '';
+                        }).filter(s => s).join('\n\n');
                     } else {
                         content = msg.content || '';
                     }
-                    if (!content) return;
-                    navigator.clipboard.writeText(content).then(() => {
-                        ElementPlus.ElMessage.success('Copied');
-                    });
+                    copyText(content);
+                }
+
+                // 从历史 jsonl 消息重建对话（turn 合并：assistant(tool_calls)+tool+assistant(回答) → 同一个气泡）
+                function buildHistoryMessages(loaded) {
+                    const result = [];
+                    let current = null;
+                    for (const m of loaded) {
+                        if (m.role === 'user') {
+                            current = null;
+                            result.push(reactive({ id: m.id || `hist_user_${result.length}_${Date.now()}`, role: 'user', content: m.content || '', timestamp: m.timestamp || Date.now() }));
+                        } else if (m.role === 'assistant') {
+                            const blocks = [];
+                            const thinkingText = m.thinking || m.reasoning_content || '';
+                            if (thinkingText) blocks.push({ type: 'thinking', text: thinkingText, _open: false });
+                            if (m.tool_calls && m.tool_calls.length) {
+                                for (const tc of m.tool_calls) {
+                                    blocks.push({
+                                        type: 'tool_call',
+                                        id: tc.id || '',
+                                        name: (tc.function && tc.function.name) || 'tool',
+                                        argsText: prettyJson(tc.function && tc.function.arguments),
+                                        preview: toolCallPreview(tc),
+                                        done: true,
+                                        _open: false
+                                    });
+                                }
+                            }
+                            if (m.content) blocks.push({ type: 'text', text: m.content, _open: false });
+                            if (current) {
+                                const lastBlock = current.blocks[current.blocks.length - 1];
+                                const canMerge = lastBlock && lastBlock.type === 'tool_result';
+                                if (!canMerge) current = null;
+                            }
+                            if (!current) {
+                                current = reactive({
+                                    id: m.id || `hist_asst_${result.length}_${Date.now()}`,
+                                    role: 'assistant',
+                                    blocks: blocks,
+                                    _isStreaming: false,
+                                    timestamp: m.timestamp || Date.now()
+                                });
+                                result.push(current);
+                            } else {
+                                // 合并进现有气泡（同一轮 ReAct 工具链）：
+                                // thinking 累积到已有的 thinking 块，避免推理内容被切分成多张卡片
+                                const thinkIdx = blocks.findIndex(b => b.type === 'thinking');
+                                if (thinkIdx >= 0) {
+                                    const existingThink = current.blocks.find(b => b.type === 'thinking');
+                                    if (existingThink) {
+                                        existingThink.text += '\n\n' + blocks[thinkIdx].text;
+                                    } else {
+                                        current.blocks.push(blocks[thinkIdx]);
+                                    }
+                                    blocks.splice(thinkIdx, 1);
+                                }
+                                current.blocks.push(...blocks);
+                            }
+                        } else if (m.role === 'tool') {
+                            const parsed = parseToolContent(m.content);
+                            if (!current) {
+                                current = reactive({
+                                    id: m.id || `hist_tool_${result.length}_${Date.now()}`,
+                                    role: 'assistant',
+                                    blocks: [],
+                                    _isStreaming: false,
+                                    timestamp: m.timestamp || Date.now()
+                                });
+                                result.push(current);
+                            }
+                            current.blocks.push({
+                                type: 'tool_result',
+                                name: parsed.name || 'tool',
+                                text: parsed.body,
+                                tool_call_id: m.tool_call_id || '',
+                                sizeLabel: (parsed.body || '').length + ' B',
+                                _open: false
+                            });
+                        }
+                    }
+                    return result;
                 }
 
                 async function loadSessions() {
@@ -887,52 +1299,30 @@
                     try {
                         const r = await fetch(`/api/sessions/${id}/messages`);
                         const loadedMessages = await r.json();
-                        messages.value = loadedMessages.map(msg => {
-                            if (msg.reasoning_content && !msg.thinking) {
-                                msg = { ...msg, thinking: msg.reasoning_content };
-                            }
-                            if (msg.role === 'assistant') {
-                                const segments = [];
-                                if (msg.thinking) {
-                                    segments.push({ type: 'thinking', text: msg.thinking });
-                                }
-                                segments.push({ type: 'text', text: msg.content || '' });
-                                msg.segments = segments;
-                            }
-                            return msg;
-                        });
+                        messages.value = buildHistoryMessages(loadedMessages);
                     } catch (e) {}
 
-                    connect(id);
+                    await restoreSessionStream(id);
+                    scrollBottom();
+                }
 
+                async function restoreSessionStream(id) {
+                    // 先取状态快照拿到 cursor，用于 SSE 续传
+                    let state = null;
+                    let resumeCursor = null;
                     try {
                         const stateRes = await fetch(`/api/chat/state/${id}`);
-                        const state = await stateRes.json();
-                        if (state.message_id) {
-                            let msg = messages.value.find(m => m.id === state.message_id);
-                            if (!msg) {
-                                msg = {
-                                    id: state.message_id,
-                                    role: state.role || 'assistant',
-                                    content: state.content || '',
-                                    thinking: state.thinking || '',
-                                    _isStreaming: true,
-                                    segments: [],
-                                    timestamp: state.timestamp || Date.now()
-                                };
-                                messages.value.push(msg);
-                            } else {
-                                msg.content = state.content || msg.content;
-                                msg.thinking = state.thinking || msg.thinking;
-                                msg._isStreaming = true;
-                            }
-                            currentStreamingMsg = msg;
-                            messageBuffer.set(state.message_id, msg);
-                            isStreaming.value = true;
-                            _recoverMsgId = state.message_id;
+                        state = await stateRes.json();
+                        if (state && state.message_id) {
+                            resumeCursor = (typeof state.cursor === 'number') ? state.cursor : null;
                         }
-                    } catch (e) {
-                        // Ignore state fetch errors
+                    } catch (e) {}
+
+                    connect(id, resumeCursor);
+
+                    // connect() 内部会 disconnect 清空，故连接后依据已取到的状态快照重建在途消息
+                    if (state && state.message_id) {
+                        applyStreamState(state);
                     }
 
                     await nextTick();
@@ -941,7 +1331,56 @@
                         if (recoverEl) recoverEl.classList.add('streaming');
                         _recoverMsgId = null;
                     }
-                    scrollBottom();
+                }
+
+                function applyStreamState(state) {
+                    let msg = messages.value.find(m => m.id === state.message_id);
+                    if (!msg) {
+                        msg = newAssistantMessage(state.message_id, {
+                            role: state.role || 'assistant',
+                            timestamp: state.timestamp || Date.now()
+                        });
+                        messages.value.push(msg);
+                    }
+                    msg._isStreaming = true;
+                    const blocks = [];
+                    if (state.thinking) blocks.push({ type: 'thinking', text: state.thinking, _open: true });
+                    (state.tool_calls || []).forEach(tc => {
+                        blocks.push({
+                            type: 'tool_call',
+                            id: tc.id || '',
+                            name: (tc.function && tc.function.name) || 'tool',
+                            argsText: prettyJson(tc.function && tc.function.arguments),
+                            preview: toolCallPreview(tc),
+                            done: false,
+                            _open: true
+                        });
+                    });
+                    (state.tool_results || []).forEach(tr => {
+                        let rText = tr.result;
+                        if (typeof rText !== 'string') {
+                            try { rText = JSON.stringify(rText, null, 2); } catch (e) { rText = String(rText); }
+                        }
+                        blocks.push({
+                            type: 'tool_result',
+                            name: tr.tool_name || 'tool',
+                            text: rText || '',
+                            tool_call_id: tr.tool_call_id || '',
+                            sizeLabel: (rText || '').length + ' B',
+                            _open: true
+                        });
+                    });
+                    if (state.content) blocks.push({ type: 'text', text: state.content, _open: false });
+                    msg.blocks = blocks;
+                    if (state.is_cron) {
+                        msg.isCron = true;
+                        msg.taskId = state.task_id;
+                        msg.taskName = state.task_name;
+                        msg.triggerTime = state.trigger_time;
+                    }
+                    streamingMsgById.set(state.message_id, msg);
+                    isStreaming.value = true;
+                    _recoverMsgId = state.message_id;
                 }
 
                 function scrollBottom() {
@@ -985,217 +1424,180 @@
                     }
                 }
 
-                function connect(sessionId) {
-                    disconnect();
-                    
-                    const chatUrl = `/api/chat/stream/${sessionId}`;
-                    chatEventSource = new EventSource(chatUrl);
-                    
-                    chatEventSource.onerror = (err) => {
-                        wsConnected.value = false;
-                        if (isStreaming.value) {
-                            isStreaming.value = false;
-                        }
-                        isSending.value = false;
-                        document.querySelectorAll('.chat-messages .message.streaming').forEach(m => m.classList.remove('streaming'));
-                    };
-                    
-                    chatEventSource.onopen = () => {
-                        wsConnected.value = true;
-                    };
-                    
-                    chatEventSource.addEventListener('session_waiting', (e) => {
-                        wsConnected.value = true;
-                    });
-                    
-                    chatEventSource.addEventListener('session_timeout', (e) => {
-                        wsConnected.value = false;
-                    });
+                function latestStreamingMsg() {
+                    let last = null;
+                    streamingMsgById.forEach(m => { last = m; });
+                    return last;
+                }
 
-                    chatEventSource.addEventListener('session_stopped', (e) => {
-                            isStreaming.value = false;
-                            isSending.value = false;
-                            document.querySelectorAll('.chat-messages .message.streaming').forEach(m => m.classList.remove('streaming'));
-                            chatEventSource.close();
-                            chatEventSource = null;
-                    });
-                    
-                    chatEventSource.addEventListener('message.start', (e) => {
-                        const data = JSON.parse(e.data);
-                        const eventId = e.lastEventId;
-                        isSending.value = false;
-                        // Skip if already have a streaming message
-                        if (currentStreamingMsg && currentStreamingMsg._isStreaming) {
-                            return;
-                        }
-                        // Check if this message already exists and is streaming
-                        let msg = messages.value.find(m => m.id === eventId);
-                        if (msg) {
-                            // Skip if already streaming
-                            if (msg._isStreaming) return;
-                            msg._isStreaming = true;
-                            messageBuffer.set(eventId, msg);
-                        } else {
-                            msg = {
-                                id: eventId,
-                                role: data.role || 'assistant',
-                                content: '',
-                                thinking: '',
-                                segments: [],
-                                _isStreaming: true,
-                                timestamp: data.timestamp || Date.now()
-                            };
-                            messages.value.push(msg);
-                            messageBuffer.set(eventId, msg);
-                        }
-                        currentStreamingMsg = msg;
-                        // Check if this is a cron-triggered message
-                        if (data.isCron) {
-                            msg.isCron = true;
-                            msg.taskName = data.taskName;
-                            msg.taskId = data.taskId;
-                            msg.triggerTime = data.triggerTime;
-                        }
-                        // Show streaming cursor via CSS class
-                        requestAnimationFrame(() => {
-                            const msgEl = document.querySelector(`.chat-messages .message[data-msg-id="${eventId}"]`);
-                            if (msgEl) {
-                                msgEl.classList.add('streaming');
-                            }
-                        });
-                    });
-                    
-                    chatEventSource.addEventListener('message.chunk', (e) => {
-                        const data = JSON.parse(e.data);
-                        if (!currentStreamingMsg) {
-                            currentStreamingMsg = {
-                                id: data.message_id || `chunk_${Date.now()}`,
-                                role: 'assistant', content: '', segments: [],
-                                _isStreaming: true, timestamp: Date.now()
-                            };
-                            messages.value.push(currentStreamingMsg);
-                        }
-                        currentStreamingMsg.content += data.delta || '';
-                        if (currentStreamingMsg.segments) {
-                            const segs = currentStreamingMsg.segments;
-                            const last = segs[segs.length - 1];
-                            if (last && last.type === 'text') {
-                                last.text += (data.delta || '');
-                            } else {
-                                segs.push({ type: 'text', text: data.delta || '' });
-                            }
-                        }
-                        const msgEl = document.querySelector(`.chat-messages .message[data-msg-id="${currentStreamingMsg.id}"] .msg-content`);
-                        if (msgEl) {
-                            msgEl.innerHTML = getMsgContent(currentStreamingMsg, false);
-                        }
-                    });
+                function ensureStreamingMsg(msgId, fallbackPrefix) {
+                    // 按 message_id 查找/创建流式消息（幂等）
+                    let msg = streamingMsgById.get(msgId);
+                    if (msg) return msg;
+                    msg = messages.value.find(m => m.id === msgId);
+                    if (msg) {
+                        msg._isStreaming = true;
+                    } else {
+                        msg = newAssistantMessage(msgId || `${fallbackPrefix}_${Date.now()}`);
+                        msg._isStreaming = true;
+                        messages.value.push(msg);
+                    }
+                    streamingMsgById.set(msg.id, msg);
+                    isStreaming.value = true;
+                    return msg;
+                }
 
-                    chatEventSource.addEventListener('message.thinking', (e) => {
-                        const data = JSON.parse(e.data);
-                        if (!currentStreamingMsg) {
-                            currentStreamingMsg = {
-                                id: data.message_id || `thinking_${Date.now()}`,
-                                role: 'assistant', content: '', segments: [],
-                                thinking: '',                             _isStreaming: true, timestamp: Date.now()
-                            };
-                            messages.value.push(currentStreamingMsg);
-                        }
-                        currentStreamingMsg.thinking = (currentStreamingMsg.thinking || '') + (data.delta || '');
-                        if (currentStreamingMsg.segments) {
-                            const segs = currentStreamingMsg.segments;
-                            const last = segs[segs.length - 1];
-                            if (last && last.type === 'thinking') {
-                                last.text += (data.delta || '');
-                            } else {
-                                segs.push({ type: 'thinking', text: data.delta || '' });
-                            }
-                        }
-                        const msgEl = document.querySelector(`.chat-messages .message[data-msg-id="${currentStreamingMsg.id}"] .msg-content`);
-                        if (msgEl) {
-                            msgEl.innerHTML = getMsgContent(currentStreamingMsg, false);
-                        }
+                function markMsgElStreaming(msgId) {
+                    requestAnimationFrame(() => {
+                        const msgEl = document.querySelector(`.chat-messages .message[data-msg-id="${msgId}"]`);
+                        if (msgEl) msgEl.classList.add('streaming');
                     });
+                }
 
-                    chatEventSource.addEventListener('message.tool_start', (e) => {
-                        const data = JSON.parse(e.data);
-                        let msg = messageBuffer.get(e.lastEventId);
-                        if (!msg && currentStreamingMsg) {
-                            msg = currentStreamingMsg;
-                            messageBuffer.set(e.lastEventId, msg);
-                        }
-                        if (msg) {
-                            const toolInfo = data.tool_info || '[Executing tool...]';
-                            if (!msg.tool_infos) msg.tool_infos = [];
-                            msg.tool_infos.push(toolInfo);
-                            if (msg.segments) {
-                                msg.segments.push({ type: 'tool', text: toolInfo });
-                            }
-                            msg.tool_calls = data.tool_calls || null;
-                            msg._isStreaming = false;
-                            const msgEl = document.querySelector(`.chat-messages .message[data-msg-id="${msg.id}"]`);
-                            if (msgEl) {
-                                msgEl.classList.remove('streaming');
-                                msgEl.querySelector('.msg-content').innerHTML = getMsgContent(msg, false);
-                            }
-                        }
-                    });
-                    
-                    chatEventSource.addEventListener('message.end', (e) => {
-                        let msg = messageBuffer.get(e.lastEventId);
-                        if (!msg && currentStreamingMsg) {
-                            msg = currentStreamingMsg;
-                        }
-                        if (msg) {
-                            msg._isStreaming = false;
-                            const msgEl = document.querySelector(`.chat-messages .message[data-msg-id="${msg.id}"]`);
-                            if (msgEl) {
-                                msgEl.classList.remove('streaming');
-                            }
-                            if (msg.isCron) {
-                                const sessionId = currentSessionId.value;
-                                if (sessionId && unreadCounts.value[sessionId] !== undefined) {
-                                    unreadCounts.value[sessionId] = (unreadCounts.value[sessionId] || 0) + 1;
-                                }
-                            }
-                        }
-                        const s = sessions.value.find(x => x.session_id === currentSessionId.value);
-                        if (s) s.last_active_time = Math.floor(Date.now() / 1000);
-                        messageBuffer.delete(e.lastEventId);
-                        currentStreamingMsg = null;
+                // ===== 流式事件处理（统一分发，全部幂等） =====
+                function handleStreamStart(data, msgId) {
+                    isSending.value = false;
+                    clearSendWatchdog();
+                    if (streamingMsgById.has(msgId)) return; // 断线续传重复帧
+                    const msg = ensureStreamingMsg(msgId, 'msg');
+                    if (data.isCron) {
+                        msg.isCron = true;
+                        msg.taskName = data.taskName;
+                        msg.taskId = data.taskId;
+                        msg.triggerTime = data.triggerTime;
+                    }
+                    markMsgElStreaming(msgId);
+                }
+
+                function handleStreamChunk(data, msgId) {
+                    const msg = ensureStreamingMsg(msgId, 'chunk');
+                    queueTextDelta(msg, data.delta || '');
+                }
+
+                function handleStreamThinking(data, msgId) {
+                    const msg = ensureStreamingMsg(msgId, 'thinking');
+                    queueThinkingDelta(msg, data.delta || '');
+                }
+
+                function handleStreamToolStart(data, msgId) {
+                    const msg = ensureStreamingMsg(msgId, 'tool');
+                    (data.tool_calls || []).forEach(tc => ensureToolCallBlock(msg, tc));
+                }
+
+                function handleStreamToolResult(data, msgId) {
+                    const msg = ensureStreamingMsg(msgId, 'toolresult');
+                    addToolResultBlock(msg, data);
+                }
+
+                function handleStreamEnd(msgId) {
+                    const msg = streamingMsgById.get(msgId) || messages.value.find(m => m.id === msgId);
+                    if (msg) {
+                        settleMessage(msg);
+                        const msgEl = document.querySelector(`.chat-messages .message[data-msg-id="${msg.id}"]`);
+                        if (msgEl) msgEl.classList.remove('streaming');
+                    }
+                    streamingMsgById.delete(msgId);
+                    if (streamingMsgById.size === 0) clearSendWatchdog();
+                    const s = sessions.value.find(x => x.session_id === currentSessionId.value);
+                    if (s) s.last_active_time = Math.floor(Date.now() / 1000);
+                    if (streamingMsgById.size === 0) {
                         isStreaming.value = false;
                         isSending.value = false;
-                        loadSessions();
-                        if (msg) {
-                            nextTick(() => {
-                                const contentEl = document.querySelector(`.chat-messages .message[data-msg-id="${msg.id}"] .msg-content`);
-                                if (contentEl) {
-                                    contentEl.innerHTML = getMsgContent(msg, true);
-                                }
-                            });
-                        }
+                    }
+                    loadSessions();
+                }
+
+                function handleStreamError(data) {
+                    const errorMsg = (data && data.error) || 'Unknown error';
+                    const msg = latestStreamingMsg();
+                    if (msg) {
+                        addErrorBlock(msg, 'Error: ' + errorMsg);
+                        settleMessage(msg);
+                    } else {
+                        const m = newAssistantMessage();
+                        addErrorBlock(m, 'Error: ' + errorMsg);
+                        messages.value.push(m);
+                    }
+                    streamingMsgById.clear();
+                    isStreaming.value = false;
+                    isSending.value = false;
+                    loadSessions();
+                }
+
+                function connect(sessionId, cursor) {
+                    disconnect();
+
+                    let chatUrl = `/api/chat/stream/${sessionId}`;
+                    if (typeof cursor === 'number') {
+                        chatUrl += `?cursor=${cursor}`;
+                    }
+                    chatEventSource = new EventSource(chatUrl);
+
+                    // onerror 只反映连接状态；流式状态由事件驱动，避免瞬时网络抖动误清 Generating
+                    chatEventSource.onopen = () => { wsConnected.value = true; };
+                    chatEventSource.onerror = () => { wsConnected.value = false; };
+
+                    chatEventSource.addEventListener('session_waiting', () => { wsConnected.value = true; });
+                    chatEventSource.addEventListener('session_timeout', () => { wsConnected.value = false; });
+
+                    chatEventSource.addEventListener('session_stopped', () => {
+                        wsConnected.value = false;
+                        streamingMsgById.clear();
+                        isStreaming.value = false;
+                        isSending.value = false;
+                        if (chatEventSource) { chatEventSource.close(); chatEventSource = null; }
                     });
-                    
+
+                    chatEventSource.addEventListener('message.start', (e) => {
+                        try { handleStreamStart(JSON.parse(e.data), e.lastEventId); }
+                        catch (err) { console.error('stream start parse error', err); }
+                    });
+                    chatEventSource.addEventListener('message.chunk', (e) => {
+                        try { handleStreamChunk(JSON.parse(e.data), e.lastEventId); }
+                        catch (err) { console.error('stream chunk parse error', err); }
+                    });
+                    chatEventSource.addEventListener('message.thinking', (e) => {
+                        try { handleStreamThinking(JSON.parse(e.data), e.lastEventId); }
+                        catch (err) { console.error('stream thinking parse error', err); }
+                    });
+                    chatEventSource.addEventListener('message.tool_start', (e) => {
+                        try { handleStreamToolStart(JSON.parse(e.data), e.lastEventId); }
+                        catch (err) { console.error('stream tool_start parse error', err); }
+                    });
+                    chatEventSource.addEventListener('message.tool_result', (e) => {
+                        try { handleStreamToolResult(JSON.parse(e.data), e.lastEventId); }
+                        catch (err) { console.error('stream tool_result parse error', err); }
+                    });
+                    chatEventSource.addEventListener('message.end', (e) => {
+                        try { handleStreamEnd(e.lastEventId); }
+                        catch (err) { console.error('stream end error', err); }
+                    });
                     chatEventSource.addEventListener('error', (e) => {
                         if (e.data) {
-                            let errorMsg = 'Unknown error';
-                            try {
-                                const data = JSON.parse(e.data);
-                                errorMsg = data.error || errorMsg;
-                            } catch (err) {}
-                            isStreaming.value = false;
-                            messages.value.push({ role: 'assistant', content: 'Error: ' + errorMsg });
+                            let data = null;
+                            try { data = JSON.parse(e.data); } catch (err) {}
+                            handleStreamError(data);
                         }
                     });
-                    
+
                     const cronUrl = `/api/cron/stream/${sessionId}`;
                     cronEventSource = new EventSource(cronUrl);
-                    
                     cronEventSource.onerror = () => {};
-                    
                     cronEventSource.addEventListener('cron.message', (e) => {
-                        // Cron notification — the actual message is delivered via
-                        // chat SSE path with isCron flag in message.start
+                        let data = null;
+                        try { data = JSON.parse(e.data); } catch (err) {}
+                        if (!data) return;
+                        if (sessionId === currentSessionId.value) {
+                            // 当前会话：立即追加 cron 任务的「用户消息」，响应随后由 chat SSE 流式展示
+                            const content = data.content || '';
+                            if (content && !messages.value.some(m => m.role === 'user' && m.content === content)) {
+                                messages.value.push({ role: 'user', content: content, isCron: true, taskName: data.task_name, taskId: data.task_id, triggerTime: data.trigger_time, timestamp: Date.now() });
+                                nextTick(() => scrollBottom());
+                            }
+                        } else {
+                            loadUnreadCounts();
+                            loadSessions();
+                        }
                     });
                     nextTick(() => setupChatScrollObserver());
                 }
@@ -1204,11 +1606,15 @@
                     destroyChatScrollObserver();
                     if (chatEventSource) { chatEventSource.close(); chatEventSource = null; }
                     if (cronEventSource) { cronEventSource.close(); cronEventSource = null; }
+                    flushDeltasNow(); // 应用未渲染的增量，避免切换会话时丢失
+                    streamingMsgById.clear();
                     isStreaming.value = false;
+                    isSending.value = false;
                     wsConnected.value = false;
-                    messageBuffer.clear();
-                    currentStreamingMsg = null;
-                    messages.value.forEach(m => m._isStreaming = false);
+                    messages.value.forEach(m => {
+                        m._isStreaming = false;
+                        if (m.blocks && m.blocks.length) settleMessage(m);
+                    });
                     document.querySelectorAll('.chat-messages .message.streaming').forEach(m => m.classList.remove('streaming'));
                 }
 
@@ -1224,7 +1630,8 @@
                             if (wsConnected.value === true) return;
                             if (wsConnected.value === null) return;
                             disconnect();
-                            connect(currentSessionId.value);
+                            // 断线重连走状态恢复：带 cursor 续传 + 重建在途消息
+                            restoreSessionStream(currentSessionId.value);
                             retries++;
                         }
                         tryConnect();
@@ -1250,19 +1657,20 @@
                 async function sendMessage() {
                     const text = chatText.value.trim();
                     if (!text || !currentSessionId.value) return;
-                    if (isStreaming.value) return;
+                    if (isStreaming.value || isSending.value) return;
                     chatText.value = '';
-                    messages.value.push({ role: 'user', content: text });
+                    messages.value.push({ role: 'user', content: text, timestamp: Date.now() });
                     const clientMessageId = `client_${Date.now()}_${Math.random().toString(36).slice(2)}`;
                     const sessionId = currentSessionId.value;
                     isSending.value = true;
 
-                    try {
-                        if (!chatEventSource || chatEventSource.readyState !== EventSource.OPEN) {
-                            connect(sessionId);
-                        }
-                        isStreaming.value = true;
+                    // 确保 SSE 已连接（首次发送时 EventSource 可能仍在 CONNECTING，稍作等待）
+                    if (!chatEventSource || chatEventSource.readyState !== EventSource.OPEN) {
+                        connect(sessionId);
+                        await new Promise(resolve => setTimeout(resolve, 120));
+                    }
 
+                    try {
                         const controller = new AbortController();
                         const timeout = setTimeout(() => controller.abort(), 180000);
                         const response = await fetch(`/api/chat/${sessionId}`, {
@@ -1275,26 +1683,27 @@
                             signal: controller.signal
                         });
                         clearTimeout(timeout);
-                        
+
                         if (!response.ok) {
-                            isStreaming.value = false;
                             isSending.value = false;
+                            isStreaming.value = false;
                             return;
                         }
-                        
-                        const result = await response.json();
-                        isSending.value = false;
+
+                        // 流式状态由 message.start / message.end 事件驱动：
+                        // isSending 在 message.start 到达后自动转为 false（见 handleStreamStart）
+                        armSendWatchdog();
                         const s = sessions.value.find(x => x.session_id === sessionId);
                         if (s) s.last_active_time = Math.floor(Date.now() / 1000);
-                        
+
                     } catch (err) {
+                        isSending.value = false;
+                        isStreaming.value = false;
                         if (err.name === 'AbortError') {
                             messages.value.push({ role: 'assistant', content: 'Error: Request timeout, please try again.' });
                         }
-                        isStreaming.value = false;
-                        isSending.value = false;
                     }
-                    
+
                     await nextTick(scrollBottom);
                 }
 
@@ -1310,19 +1719,40 @@
                     connect(currentSessionId.value);
                 }
 
-                async function clearSession() {
-                    if (!currentSessionId.value) return;
-                    messages.value = [];
-                    await fetch(`/api/sessions/${currentSessionId.value}/messages`, { method: 'DELETE' });
+                async function clearSession(sessionId = null) {
+                    const sid = (typeof sessionId === 'string' && sessionId) || currentSessionId.value;
+                    if (!sid) return;
+                    if (sid === currentSessionId.value) {
+                        messages.value = [];
+                    }
+                    try {
+                        await fetch(`/api/sessions/${sid}/messages`, { method: 'DELETE' });
+                    } catch (e) { console.error('clearSession error', e); }
                 }
 
-                async function deleteSession() {
-                    if (!currentSessionId.value) return;
-                    await fetch(`/api/sessions/${currentSessionId.value}`, { method: 'DELETE' });
-                    sessions.value = sessions.value.filter(s => s.session_id !== currentSessionId.value);
-                    currentSessionId.value = null;
-                    messages.value = [];
-                    disconnect();
+                async function deleteSession(targetId = null) {
+                    const sid = (typeof targetId === 'string' && targetId) || currentSessionId.value;
+                    if (!sid) return;
+                    const wasCurrent = sid === currentSessionId.value;
+                    try {
+                        await fetch(`/api/sessions/${sid}`, { method: 'DELETE' });
+                    } catch (e) {
+                        console.error('deleteSession error', e);
+                    }
+                    sessions.value = sessions.value.filter(s => s.session_id !== sid);
+                    if (wasCurrent) {
+                        // 删除的是当前会话：自动选中最近活跃的 webui 会话；没有则新建一个
+                        currentSessionId.value = null;
+                        messages.value = [];
+                        disconnect();
+                        const remaining = sessions.value.filter(s => s.session_id && (!s.channel || s.channel === 'webui'));
+                        if (remaining.length > 0) {
+                            const sorted = [...remaining].sort((a, b) => (b.last_active_time || 0) - (a.last_active_time || 0));
+                            await selectSession(sorted[0].session_id);
+                        } else {
+                            await createSession();
+                        }
+                    }
                 }
 
                 async function loadCronTasks() {
@@ -1494,13 +1924,23 @@
 
                 async function toggleCron(task) {
                     task.enabled = !task.enabled;
-                    await fetch('/api/crons', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(task) });
+                    const r = await fetch('/api/crons', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(task) });
+                    if (!r.ok) {
+                        task.enabled = !task.enabled;  // 回滚
+                        ElementPlus.ElMessage.error('Toggle failed');
+                    }
                     loadCronTasks();
                 }
 
                 async function triggerCron(task) {
                     try {
-                        await fetch('/api/crons/trigger', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ task_id: task.id }) });
+                        const r = await fetch('/api/crons/trigger', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ task_id: task.id }) });
+                        if (!r.ok) {
+                            let msg = 'Trigger failed';
+                            try { const e = await r.json(); msg = e.detail || msg; } catch (_) {}
+                            ElementPlus.ElMessage.error(msg);
+                            return;
+                        }
                         ElementPlus.ElMessage.success('Triggered');
                         loadUnreadCounts();
                     } catch (e) { ElementPlus.ElMessage.error('Failed'); }
@@ -1727,9 +2167,9 @@
                     if (tab === 'skills') { loadUserSkills(); }
                     if (tab === 'settings') { loadSettings(); loadAgents(); }
                     if (tab === 'chat') {
-                        loadSessions().then(() => {
+                        loadSessions().then(async () => {
                             if (currentSessionId.value) {
-                                connect(currentSessionId.value);
+                                await restoreSessionStream(currentSessionId.value);
                                 nextTick(() => scrollBottom());
                             } else {
                                 selectLatestSession();
@@ -1776,15 +2216,16 @@
                 }
 
                 async function handleSessionMenu(cmd, sessionId) {
-                    currentSessionId.value = sessionId;
                     if (cmd === 'rename') {
+                        currentSessionId.value = sessionId;
                         showRenameDialog();
                     } else if (cmd === 'bind') {
+                        currentSessionId.value = sessionId;
                         showBindAgentDialog();
                     } else if (cmd === 'clear') {
-                        await clearSession();
+                        await clearSession(sessionId);
                     } else if (cmd === 'delete') {
-                        await deleteSession();
+                        await deleteSession(sessionId);
                     }
                 }
 
@@ -1796,8 +2237,9 @@
                 });
 
                 function selectLatestSession() {
-                    if (sessions.value.length > 0) {
-                        const sorted = [...sessions.value].sort((a, b) => (b.last_active_time || 0) - (a.last_active_time || 0));
+                    const webui = sessions.value.filter(s => !s.channel || s.channel === 'webui');
+                    if (webui.length > 0) {
+                        const sorted = [...webui].sort((a, b) => (b.last_active_time || 0) - (a.last_active_time || 0));
                         selectSession(sorted[0].session_id);
                     }
                 }
@@ -1814,7 +2256,7 @@
                     bindAgentDialogVisible, bindAgentForm,
                     renameDialogVisible, renameForm,
                     agentDialogVisible, editingAgent, agentForm,
-                    formatTime, getMsgContent, loadSessions, loadUnreadCounts, createSession, selectSession, selectLatestSession, sendMessage, stopGeneration, clearSession, deleteSession,
+                    formatTime, formatFullTime, renderMarkdown, onBlockToggle, copyBlock, copyMessage, loadSessions, loadUnreadCounts, createSession, selectSession, selectLatestSession, sendMessage, stopGeneration, clearSession, deleteSession,
                     loadCronTasks, showCronDialog, saveCron, deleteCron, toggleCron, triggerCron,
                     loadUserSkills, showSkillDialog, viewSkill, saveSkill, deleteSkill, openSkillsDir,
                     loadAgents, loadSettings, saveSettings, resetSettings, onTabChange,

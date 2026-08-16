@@ -5,6 +5,7 @@
 import pytest
 import json
 import datetime
+import asyncio
 
 
 class TestCronValidation:
@@ -628,6 +629,98 @@ class TestCheckAndTrigger:
         assert t2.last_triggered == datetime.datetime(2024, 1, 1, 10, 0)
 
 
+class TestTriggerTaskManual:
+    """手动触发 trigger_task 行为（手动触发不受 enabled 限制）"""
+
+    @pytest.mark.asyncio
+    async def test_trigger_disabled_task_returns_true(self):
+        """disabled 任务手动触发也应成功（enabled 仅控制自动调度）"""
+        task = _make_task("t1", schedule="0 0 * * *", enabled=False, session_id="default")
+        scheduler = _make_scheduler([task])
+
+        ok = await scheduler.trigger_task("t1")
+        assert ok is True
+        # 消息已入队到对应会话队列
+        assert "default" in scheduler._queues
+        assert not scheduler._queues["default"].empty()
+        await asyncio.sleep(0.2)  # 让后台 _process_queue 收尾
+
+    @pytest.mark.asyncio
+    async def test_trigger_enabled_task_returns_true(self):
+        """enabled 任务手动触发成功"""
+        task = _make_task("t1", schedule="0 0 * * *", enabled=True, session_id="default")
+        scheduler = _make_scheduler([task])
+
+        ok = await scheduler.trigger_task("t1")
+        assert ok is True
+        assert "default" in scheduler._queues
+        assert not scheduler._queues["default"].empty()
+        await asyncio.sleep(0.2)
+
+    @pytest.mark.asyncio
+    async def test_trigger_missing_task_returns_false(self):
+        """不存在的任务手动触发返回 False"""
+        scheduler = _make_scheduler([])
+        ok = await scheduler.trigger_task("nope")
+        assert ok is False
+
+
+class TestProcessQueueErrorHandling:
+    """_process_queue 回调异常不应导致 _processing 卡死"""
+
+    @pytest.mark.asyncio
+    async def test_callback_error_resets_processing(self):
+        """push_callback 抛异常后 _processing 应重置，后续消息可继续处理"""
+        from gateway.cron_scheduler import CronScheduler, CronTask
+
+        scheduler = CronScheduler()
+        task = CronTask(
+            id="t1", name="test", schedule="0 0 * * *", description="d",
+            agent_id="main_agent", session_id="default", enabled=True,
+        )
+        scheduler._tasks["t1"] = task
+
+        async def failing_callback(session_id, event_data):
+            raise RuntimeError("boom")
+
+        scheduler.set_push_callback(failing_callback)
+        await scheduler._enqueue_message(task)
+        await asyncio.sleep(0.3)
+
+        # 异常后 _processing 必须被重置，否则后续消息永久阻塞
+        assert scheduler._processing.get("default") is False
+
+        # 第二次 enqueue 应能再次触发处理（不会因为 _processing 卡 True 而失效）
+        called = []
+        async def ok_callback(session_id, event_data):
+            called.append(session_id)
+        scheduler.set_push_callback(ok_callback)
+        await scheduler._enqueue_message(task)
+        await asyncio.sleep(0.3)
+        assert called == ["default"]
+        assert scheduler._processing.get("default") is False
+
+    @pytest.mark.asyncio
+    async def test_processing_flag_resets_after_success(self):
+        """正常处理完后 _processing 重置为 False"""
+        from gateway.cron_scheduler import CronScheduler, CronTask
+
+        scheduler = CronScheduler()
+        task = CronTask(
+            id="t1", name="test", schedule="0 0 * * *", description="d",
+            agent_id="main_agent", session_id="default", enabled=True,
+        )
+        scheduler._tasks["t1"] = task
+
+        async def ok_callback(session_id, event_data):
+            return None
+        scheduler.set_push_callback(ok_callback)
+        await scheduler._enqueue_message(task)
+        await asyncio.sleep(0.3)
+        assert scheduler._processing.get("default") is False
+        assert scheduler._queues["default"].empty()
+
+
 class TestCheckAndTriggerMidnight:
     """午夜跨天场景"""
 
@@ -1059,3 +1152,70 @@ class TestEndToEndExternalWriteSurvival:
         t3_data = next(t for t in data if t["id"] == "t3")
         assert t3_data["name"] == "hn_agent_daily"
         assert t3_data["schedule"] == "0 6 * * *"
+
+
+class TestCronPromptFormat:
+    """定时任务触发文案格式（build_cron_prompt / _enqueue_message）"""
+
+    def test_build_cron_prompt_full_format(self):
+        """完整格式：标题 + 指令 + 空行 + 描述"""
+        from gateway.cron_scheduler import build_cron_prompt
+
+        p = build_cron_prompt("每日巡检", "检查系统日志并生成报告")
+        assert p == (
+            "[Scheduled: 每日巡检]\n"
+            "This is an automated scheduled run. Execute the task described below and finish.\n"
+            "\n"
+            "检查系统日志并生成报告"
+        )
+
+    def test_build_cron_prompt_empty_description(self):
+        """描述为空时只输出标题 + 指令"""
+        from gateway.cron_scheduler import build_cron_prompt
+
+        p = build_cron_prompt("夜间任务", "")
+        assert p == (
+            "[Scheduled: 夜间任务]\n"
+            "This is an automated scheduled run. Execute the task described below and finish."
+        )
+
+    def test_build_cron_prompt_strips_whitespace(self):
+        """描述首尾空白被清理"""
+        from gateway.cron_scheduler import build_cron_prompt
+
+        p = build_cron_prompt("t", "  hello world  \n")
+        assert p.endswith("hello world")
+
+    @pytest.mark.asyncio
+    async def test_enqueue_message_uses_new_format(self):
+        """_enqueue_message 生成的 content 使用新文案格式（含任务名，不再含旧 [Cron Task:]）"""
+        from gateway.cron_scheduler import CronScheduler, CronTask
+
+        captured = {}
+
+        async def cb(session_id, event_data):
+            captured["event_data"] = event_data
+
+        scheduler = CronScheduler()
+        scheduler.set_push_callback(cb)
+        task = CronTask(
+            id="t1", name="daily_report", schedule="0 0 * * *",
+            description="生成每日报告", agent_id="main_agent",
+            session_id="s1", enabled=True,
+        )
+        scheduler._tasks["t1"] = task
+        await scheduler._enqueue_message(task)
+        await asyncio.sleep(0.3)
+
+        payload = captured["event_data"]["payload"]
+        content = payload["content"]
+        assert content.startswith("[Scheduled: daily_report]\n")
+        assert "This is an automated scheduled run." in content
+        assert "生成每日报告" in content
+        assert "[Cron Task:" not in content
+        assert "Trigger time:" not in content
+        # 元数据仍透传（is_cron 由 router.push_cron_event 层添加，不在此 payload）
+        assert payload["task_name"] == "daily_report"
+        assert payload["task_id"] == "t1"
+        assert payload["cron_id"].startswith("cron_t1_")
+        assert payload["agent_id"] == "main_agent"

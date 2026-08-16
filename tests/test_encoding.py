@@ -11,9 +11,7 @@
 
 import json
 import locale
-import shutil
 import sys
-from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -171,26 +169,24 @@ class TestSessionStoreEncoding:
             "core.config.get_sessions_dir", lambda: sessions_dir
         )
 
+        # 安全卫士：快照真实 sessions.json 内容，写入后比对，确认落到的是临时目录
+        real_sessions = Path(__file__).parent.parent.parent / "workspace" / "data" / "sessions"
+        real_json = real_sessions / "sessions.json"
+        real_before = real_json.read_text(encoding="utf-8") if real_json.exists() else None
+
         store = SessionStore()
         test_data = {"session_1": {"name": "中文会话名", "created_at": 1234567890}}
         store.save(test_data)
         loaded = store.load()
         assert loaded == test_data
 
-        # 安全卫士：确认写入的是临时目录，而不是真实 sessions.json
-        real_sessions = Path(__file__).parent.parent.parent / "workspace" / "data" / "sessions"
-        if real_sessions.exists():
-            real_json = real_sessions / "sessions.json"
-            if real_json.exists():
-                mtime = datetime.fromtimestamp(real_json.stat().st_mtime)
-                if datetime.now() - mtime < timedelta(seconds=10):
-                    real_jsonbak = real_sessions / "sessions.json.bak"
-                    shutil.copy(real_json, real_jsonbak)
-                    real_json.write_text(json.dumps({}), encoding="utf-8")
-                    pytest.fail(
-                        "SAFETY: session store wrote to REAL sessions.json! "
-                        "Saved to sessions.json.bak. Monkeypatch may have failed."
-                    )
+        # 真实 sessions.json 不应被本用例改写（避免与其它用例交叉污染的误判）
+        if real_json.exists():
+            real_after = real_json.read_text(encoding="utf-8")
+            assert real_after == real_before, (
+                "SAFETY: session store wrote to REAL sessions.json! "
+                "Monkeypatch may have failed."
+            )
 
 
 class TestSettingsEncoding:

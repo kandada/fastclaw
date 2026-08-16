@@ -19,6 +19,32 @@ else:
     from core.config import get_cron_dir
 
 
+def build_cron_prompt(task_name: str, description: str) -> str:
+    """构建定时任务触发时的系统提示文案
+
+    格式:
+        [Scheduled: <任务名称>]
+        This is an automated scheduled run. Execute the task described below and finish.
+
+        <任务描述>
+
+    Args:
+        task_name: 定时任务名称
+        description: 定时任务描述（要执行的具体内容）
+
+    Returns:
+        拼接后的提示文案
+    """
+    parts = [
+        f"[Scheduled: {task_name}]",
+        "This is an automated scheduled run. Execute the task described below and finish.",
+    ]
+    if description and description.strip():
+        parts.append("")
+        parts.append(description.strip())
+    return "\n".join(parts)
+
+
 @dataclass
 class CronTask:
     id: str
@@ -156,6 +182,8 @@ class CronScheduler:
     async def trigger_task(self, task_id: str) -> bool:
         """手动触发一个任务
 
+        手动触发是显式用户意图，不受 enabled 状态限制（enabled 仅控制自动调度）。
+
         Args:
             task_id: 任务 ID
 
@@ -164,9 +192,6 @@ class CronScheduler:
         """
         task = self._tasks.get(task_id)
         if not task:
-            return False
-
-        if not task.enabled:
             return False
 
         await self._enqueue_message(task)
@@ -178,7 +203,7 @@ class CronScheduler:
         cron_id = f"cron_{task.id}_{int(time.time() * 1000)}"
         trigger_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
 
-        content = f"{task.description}\n[Cron Task: {task.name}]\nTrigger time: {trigger_time}"
+        content = build_cron_prompt(task.name, task.description)
 
         queued_msg = QueuedMessage(
             task_id=task.id,
@@ -203,33 +228,40 @@ class CronScheduler:
         """处理消息队列"""
         self._processing[session_id] = True
 
-        while True:
-            queue = self._queues.get(session_id)
-            if not queue or queue.empty():
-                break
+        try:
+            while True:
+                queue = self._queues.get(session_id)
+                if not queue or queue.empty():
+                    break
 
-            msg: QueuedMessage = await queue.get()
+                msg: QueuedMessage = await queue.get()
 
-            if self._push_callback:
-                event_data = {
-                    "type": "cron.message",
-                    "payload": {
-                        "task_id": msg.task_id,
-                        "task_name": msg.task_name,
-                        "content": msg.content,
-                        "cron_id": msg.cron_id,
-                        "trigger_time": msg.trigger_time,
-                        "agent_id": msg.agent_id,
-                    },
-                }
-                print(
-                    f"[CronScheduler] Pushing cron event to session {session_id}: {msg.task_name}"
-                )
-                await self._push_callback(session_id, event_data)
+                if self._push_callback:
+                    event_data = {
+                        "type": "cron.message",
+                        "payload": {
+                            "task_id": msg.task_id,
+                            "task_name": msg.task_name,
+                            "content": msg.content,
+                            "cron_id": msg.cron_id,
+                            "trigger_time": msg.trigger_time,
+                            "agent_id": msg.agent_id,
+                        },
+                    }
+                    print(
+                        f"[CronScheduler] Pushing cron event to session {session_id}: {msg.task_name}"
+                    )
+                    try:
+                        await self._push_callback(session_id, event_data)
+                    except Exception as e:
+                        print(
+                            f"[CronScheduler] push_callback error for session {session_id}: {e}"
+                        )
 
-            await asyncio.sleep(0.1)
-
-        self._processing[session_id] = False
+                await asyncio.sleep(0.1)
+        finally:
+            # 无论 push_callback 是否异常，都重置处理标记，避免后续消息永久阻塞
+            self._processing[session_id] = False
 
     async def _check_and_trigger(self, _now: Optional[datetime] = None):
         """检查所有任务是否应该触发

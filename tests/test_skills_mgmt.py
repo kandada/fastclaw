@@ -12,6 +12,57 @@ import pytest
 # — helpers —
 
 
+_POPPED_MODULES = [
+    "core.app", "core.config", "core.prompts", "core.paths", "core.bootstrap",
+    "gateway.router", "gateway.server", "gateway.event_bus",
+    "fastclaw.core.app", "fastclaw.core.config", "fastclaw.core.prompts",
+    "fastclaw.core.paths", "fastclaw.core.bootstrap",
+    "fastclaw.gateway.router", "fastclaw.gateway.server", "fastclaw.gateway.event_bus",
+]
+
+
+@pytest.fixture(autouse=True)
+def _cleanup_workspace_env():
+    """测试结束后还原 FASTCLAW_WORKSPACE 与被 _setup_skills_workspace 弹出的模块。
+
+    _setup_skills_workspace 直接修改 os.environ 并 pop sys.modules，若不在结束时
+    还原，会污染后续用例（agents/skills 列表解析到临时目录而失败，以及模块对象
+    分裂导致缓存错乱）。同时恢复父包属性（如 fastclaw.core.config），避免
+    `import a.b` 因包属性被覆盖而拿到错误模块对象。
+    """
+    original_env = os.environ.get("FASTCLAW_WORKSPACE")
+    saved_modules = {m: sys.modules.get(m) for m in _POPPED_MODULES}
+    yield
+    if original_env is None:
+        os.environ.pop("FASTCLAW_WORKSPACE", None)
+    else:
+        os.environ["FASTCLAW_WORKSPACE"] = original_env
+    for m, mod in saved_modules.items():
+        if mod is None:
+            sys.modules.pop(m, None)
+        else:
+            sys.modules[m] = mod
+            # 恢复父包属性，防止 `import fastclaw.core.config` 命中被覆盖的包属性
+            if "." in m:
+                parent_name, attr = m.rsplit(".", 1)
+                parent = sys.modules.get(parent_name)
+                if parent is not None:
+                    try:
+                        setattr(parent, attr, mod)
+                    except Exception:
+                        pass
+    # 硬编码 `from fastclaw.core.config import ...` 的 gateway 模块，若在
+    # test_skills_mgmt 期间被 re-import 会引用分裂后的 config；此处弹出，
+    # 让后续用例 import 时重新绑定正确的 config（避免 module 分裂导致 monkeypatch 失效）
+    for extra in ("gateway.channels.handlers", "gateway.channels.feishu", "gateway.channels"):
+        sys.modules.pop(extra, None)
+    try:
+        from core.config import get_workspace_path
+        get_workspace_path.cache_clear()
+    except Exception:
+        pass
+
+
 def _setup_skills_workspace():
     """创建临时 workspace，设置环境变量，返回 ws 路径"""
     ws = tempfile.mkdtemp()

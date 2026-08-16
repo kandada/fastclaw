@@ -418,6 +418,7 @@ async def delete_user_skill(name: str):
     return {"status": "deleted", "name": name}
 
 
+@router.get("/api/agents")
 async def list_agents():
     """列出所有 Agent"""
     agents_dir = get_agents_dir()
@@ -637,15 +638,14 @@ async def delete_cron(task_id: str):
 
 @router.post("/api/crons/trigger")
 async def trigger_cron(task_data: dict):
-    """手动触发 Cron 任务"""
-    global _websocket_api
+    """手动触发 Cron 任务（手动触发不受 enabled 限制）"""
     task_id = task_data.get("task_id")
 
     cron_scheduler = get_cron_scheduler()
     success = await cron_scheduler.trigger_task(task_id)
 
     if not success:
-        raise HTTPException(status_code=404, detail="Task not found or disabled")
+        raise HTTPException(status_code=404, detail="Task not found")
 
     return {"status": "triggered", "task_id": task_id}
 
@@ -730,6 +730,21 @@ async def delete_session(session_id: str):
     del sessions[session_id]
     await _save_sessions_async(sessions)
 
+    # 清理会话相关的流状态 / 累积任务 / cron 通知队列
+    _session_stream_state.pop(session_id, None)
+    _session_state_cursors.pop(session_id, None)
+    task = _accumulator_tasks.pop(session_id, None)
+    if task is not None and not task.done():
+        task.cancel()
+    _cron_sse_queues.pop(session_id, None)
+
+    # 引擎层面删除会话，避免内存中的 session 对象残留
+    if _websocket_api is not None:
+        try:
+            await _websocket_api.delete_session(session_id)
+        except Exception:
+            pass
+
     session_dir = get_sessions_dir() / session_id
     if session_dir.exists():
         shutil.rmtree(session_dir, ignore_errors=True)
@@ -796,13 +811,14 @@ _websocket_api = None
 
 _cron_sse_queues: Dict[str, asyncio.Queue] = {}
 _unread_counts: Dict[str, int] = {}
-_pending_cron_messages: Dict[str, list] = {}
 _pending_cron_info: Dict[str, dict] = {}
 
-_event_id_to_message_id: Dict[str, str] = {}
-
-# Per-session streaming state: {session_id: {message_id, content, thinking, role, timestamp}}
+# Per-session streaming state: {session_id: {message_id, content, thinking, tool_calls, tool_results, role, timestamp, cursor}}
 _session_stream_state: Dict[str, dict] = {}
+
+# 订阅无关的流状态累积：每个会话一个后台任务 + 独立 drain 游标
+_session_state_cursors: Dict[str, int] = {}
+_accumulator_tasks: Dict[str, asyncio.Task] = {}
 
 
 def _find_latest_webui_session(sessions: dict) -> str:
@@ -863,18 +879,18 @@ async def push_cron_event(session_id: str, event_data: dict):
         event_id=message_id,
     )
 
-    _event_id_to_message_id[event.event_id] = message_id
-
-    # Set pending cron info BEFORE pushing to engine, so chat SSE path
-    # picks it up when it sees the first response event
-    _pending_cron_info[session_id] = {
+    # Set pending cron info BEFORE pushing to engine, so accumulator/chat SSE
+    # picks it up when it sees the first response event.
+    # 以 message_id 为 key，避免同一 session 连续多个 cron 任务时单槽被覆盖。
+    _pending_cron_info[message_id] = {
         "cron_id": cron_id,
         "task_id": task_id,
         "task_name": task_name,
         "trigger_time": trigger_time,
     }
 
-    # Push to engine — chat SSE path consumes the response events
+    # Push to engine — chat SSE path / accumulator consumes the response events
+    ensure_session_accumulator(session_id)
     await _websocket_api.push_event(session_id, event)
 
     # Send lightweight notification to cron SSE (no response events)
@@ -886,6 +902,7 @@ async def push_cron_event(session_id: str, event_data: dict):
             "cron_id": cron_id,
             "task_id": task_id,
             "task_name": task_name,
+            "content": content,
             "trigger_time": trigger_time,
             "events": [],
         }
@@ -986,8 +1003,7 @@ async def chat_send_and_stream(session_id: str, request: ChatRequest):
         event_id=message_id,
     )
 
-    _event_id_to_message_id[message_id] = message_id
-
+    ensure_session_accumulator(session_id)
     await _websocket_api.push_event(session_id, user_event)
     update_session_activity(session_id)
 
@@ -1006,6 +1022,10 @@ async def chat_stop(session_id: str):
 
     await session.stop()
     _session_stream_state.pop(session_id, None)
+    _session_state_cursors.pop(session_id, None)
+    task = _accumulator_tasks.pop(session_id, None)
+    if task is not None and not task.done():
+        task.cancel()
     return {"status": "stopped", "session_id": session_id}
 
 
@@ -1019,19 +1039,30 @@ async def chat_stream_state(session_id: str):
         "message_id": None,
         "content": "",
         "thinking": "",
+        "tool_calls": [],
+        "tool_results": [],
         "role": "assistant",
         "timestamp": 0,
+        "cursor": None,
     }
 
 
-async def _stream_session_events(session, poll_interval=15.0):
+async def _stream_session_events(
+    session, poll_interval=15.0, start_cursor=None, stop_on_end=True
+):
     """Stream session events with configurable poll interval.
 
     Like FastMindAPI.stream_events() but with adjustable idle poll timeout
     to reduce CPU usage. Yields None when a poll cycle finds no new events,
     allowing the SSE generator to emit heartbeats without CancelledError overhead.
+
+    start_cursor: 若提供，则从该事件游标开始回放（断线续传）；否则从 tail 起播。
+    stop_on_end: 遇到 stream.end/error/interrupt 是否结束迭代。
+                 默认 True（单条消息）；False 用于长连接持续订阅多条消息。
     """
-    cursor = session._event_buffer.tail_cursor
+    cursor = (
+        start_cursor if start_cursor is not None else session._event_buffer.tail_cursor
+    )
     while session.is_alive:
         try:
             events = await session._event_buffer.wait(cursor, timeout=poll_interval)
@@ -1041,21 +1072,109 @@ async def _stream_session_events(session, poll_interval=15.0):
             cursor += len(events)
             for event in events:
                 yield event
-                if event.type in ("stream.end", "error", "interrupt"):
+                if stop_on_end and event.type in ("stream.end", "error", "interrupt"):
                     return
         except asyncio.CancelledError:
             break
     return
 
 
+def _build_stream_start_data(session_id: str, msg_id: str) -> dict:
+    """构造 message.start 帧数据（含 cron 元信息，与累积状态保持一致）"""
+    start_data = {
+        "role": "assistant",
+        "timestamp": time.time(),
+        "message_id": msg_id,
+    }
+    state = _session_stream_state.get(session_id)
+    cron_meta = None
+    if state and state.get("is_cron") and state.get("message_id") == msg_id:
+        cron_meta = state
+    else:
+        cron_meta = _pending_cron_info.get(msg_id)
+    if cron_meta:
+        start_data["isCron"] = True
+        start_data["taskName"] = cron_meta.get("task_name")
+        start_data["taskId"] = cron_meta.get("task_id")
+        start_data["triggerTime"] = cron_meta.get("trigger_time")
+    return start_data
+
+
+async def _stream_message_events(
+    session_id: str,
+    session,
+    poll_interval: float = 15.0,
+    start_cursor: int = None,
+):
+    """将会话事件流转换为带 message.start/end 帧的 SSE 消息事件。
+
+    - 按 message_id 自动组装逻辑消息：每条消息先发 message.start，再发内容事件，
+      保证 WebUI 前端始终有消息可挂载流式增量
+    - stream.end -> message.end（消息收尾），随后继续等待下一条消息（长连接）
+    - stream.error -> error 帧并结束
+    - 空闲轮询周期 yield None，由调用方输出 SSE 心跳注释
+    """
+    current_msg_id = None
+    message_started = False
+
+    async for event in _stream_session_events(
+        session,
+        poll_interval=poll_interval,
+        start_cursor=start_cursor,
+        stop_on_end=False,
+    ):
+        if event is None:
+            yield None  # 心跳
+            continue
+        if event.type in ("user.message", "cron.message"):
+            continue
+
+        sse_event = _transform_event_to_sse(event, current_msg_id)
+        if sse_event is None:
+            continue
+
+        evt = sse_event["event"]
+        msg_id = sse_event["id"]
+
+        # 新逻辑消息开始：先补发 message.start，保证前端始终有消息可挂载
+        if evt in (
+            "message.chunk",
+            "message.thinking",
+            "message.tool_start",
+            "message.tool_result",
+        ):
+            if not message_started:
+                current_msg_id = msg_id
+                message_started = True
+                yield {
+                    "id": current_msg_id,
+                    "event": "message.start",
+                    "data": _build_stream_start_data(session_id, current_msg_id),
+                }
+
+        yield sse_event
+
+        if evt == "message.end":
+            current_msg_id = None
+            message_started = False
+        elif evt == "error":
+            return
+
+    # 会话停止且仍有在途消息：补发 message.end 让前端正常收尾
+    if message_started:
+        yield {"id": current_msg_id, "event": "message.end", "data": {}}
+
+
 @router.get("/api/chat/stream/{session_id}")
-async def chat_stream_subscribe(session_id: str):
+async def chat_stream_subscribe(session_id: str, cursor: int = None):
     """订阅 SSE 流
 
-    用于接收 AI 响应。
-    注意：Cron 消息请使用 /api/cron/stream/{session_id}
+    用于接收 AI 响应（WebUI 流式输出）。
+    - 会话未创建时主动创建（首次消息推送前即可建立连接，消除 60s 等待窗口）
+    - 支持 ?cursor=N 从指定事件游标续传（配合 /api/chat/state 断线恢复）
+    - 长连接持续输出：每条消息以 message.start 开始、message.end 收尾
+    - Cron 消息请使用 /api/cron/stream/{session_id}
     """
-    # (c) 2024-2026 xiefujin <490021684@qq.com> GPLv3
     if _websocket_api is None:
         raise HTTPException(status_code=500, detail="API not initialized")
 
@@ -1065,129 +1184,28 @@ async def chat_stream_subscribe(session_id: str):
             yield f"data: {{}}\n\n"
 
             session = _websocket_api.get_session(session_id)
-            if not session:
-                yield f"event: session_waiting\n"
-                yield f"data: {json.dumps({'message': 'Waiting for session...'})}\n\n"
-
-                for i in range(60):
-                    await asyncio.sleep(1)
-                    session = _websocket_api.get_session(session_id)
-                    if session:
-                        break
-
-                if not session:
-                    yield f"event: session_timeout\n"
-                    yield f"data: {json.dumps({'message': 'Session timeout'})}\n\n"
-                    return
-
-            try:
-                iterator = _stream_session_events(session, poll_interval=15.0).__aiter__()
-                heartbeat_interval_polls = 2
-                heartbeat_counter = 0
-                max_empty_polls = 480 * heartbeat_interval_polls
-                message_started = False
-                current_msg_id = None  # Keep same msg_id for all chunks in a message
-                _session_restart_polls = 0
-                while True:
+            if session is None:
+                # 主动创建会话，避免等待窗口；与 ensure_session_accumulator 行为一致
+                engine = getattr(_websocket_api, "_engine", None)
+                if engine is not None:
                     try:
-                        event = await iterator.__anext__()
-                        _session_restart_polls = 0
-                    except StopAsyncIteration:
-                        if not session.is_alive:
-                            _session_restart_polls += 1
-                            if _session_restart_polls >= 6:
-                                break
-                            await asyncio.sleep(0.5)
-                        iterator = _stream_session_events(
-                            session, poll_interval=15.0
-                        ).__aiter__()
-                        continue
-
-                    if event is None:
-                        heartbeat_counter += 1
-                        if heartbeat_counter >= max_empty_polls:
-                            yield f"event: error\n"
-                            yield f"data: {json.dumps({'error': 'Stream timeout'})}\n\n"
-                            break
-                        if heartbeat_counter % heartbeat_interval_polls == 0:
-                            yield f": heartbeat\n\n"
-                        continue
-
-                    heartbeat_counter = 0
-                    if event.type == "cron.message":
-                        continue
-
-                    # Only compute msg_id if we don't have one yet
-                    if current_msg_id is None:
-                        current_msg_id = event.payload.get("message_id")
-                        if not current_msg_id:
-                            current_msg_id = (
-                                f"evt_{event.event_id[:8]}"
-                                if event.event_id
-                                else f"unk_{time.time()}"
-                            )
-
-                    # Emit message.start for the first chunk event
-                    if (
-                        event.type in ("stream.chunk", "stream.thinking")
-                        and not message_started
-                    ):
-                        start_data = {
-                            'role': 'assistant',
-                            'timestamp': time.time(),
-                        }
-                        # Check if this message is from a cron-triggered response
-                        cron_info = _pending_cron_info.pop(session_id, None)
-                        if cron_info:
-                            start_data['isCron'] = True
-                            start_data['taskName'] = cron_info['task_name']
-                            start_data['taskId'] = cron_info['task_id']
-                            start_data['triggerTime'] = cron_info['trigger_time']
-                        yield f"id: {current_msg_id}\n"
-                        yield f"event: message.start\n"
-                        yield f"data: {json.dumps(start_data)}\n\n"
-                        _session_stream_state[session_id] = {
-                            "message_id": current_msg_id,
-                            "content": "",
-                            "thinking": "",
-                            "role": "assistant",
-                            "timestamp": time.time(),
-                        }
-                        message_started = True
-
-                    sse_event = _transform_event_to_sse(event, current_msg_id)
-                    if sse_event is None:
-                        continue
-
-                    # Immediately yield SSE event without buffering
-                    yield f"id: {sse_event['id']}\n"
-                    yield f"event: {sse_event['event']}\n"
-                    yield f"data: {json.dumps(sse_event['data'])}\n\n"
-
-                    # Update state for session recovery
-                    if session_id in _session_stream_state:
-                        if sse_event["event"] == "message.chunk":
-                            _session_stream_state[session_id]["content"] += (
-                                sse_event["data"].get("delta", "")
-                            )
-                        elif sse_event["event"] == "message.thinking":
-                            _session_stream_state[session_id]["thinking"] += (
-                                sse_event["data"].get("delta", "")
-                            )
-
-                    if sse_event["event"] in ("message.end", "error"):
-                        _session_stream_state.pop(session_id, None)
-                        message_started = False
-                        current_msg_id = None  # Reset for next message
-                        heartbeat_counter = 0  # Reset heartbeat for next message
-                        if sse_event["event"] == "error":
-                            break  # Exit loop on error
-            except asyncio.CancelledError:
-                pass
-            except Exception as e:
-                yield f"event: error\n"
-                yield f"data: {json.dumps({'error': str(e)})}\n\n"
+                        session = engine.get_or_create_session(session_id)
+                    except Exception:
+                        session = None
+            if session is None:
+                yield f"event: session_timeout\n"
+                yield f"data: {json.dumps({'message': 'Session unavailable'})}\n\n"
                 return
+
+            async for sse_event in _stream_message_events(
+                session_id, session, start_cursor=cursor
+            ):
+                if sse_event is None:
+                    yield f": heartbeat\n\n"
+                    continue
+                yield f"id: {sse_event['id']}\n"
+                yield f"event: {sse_event['event']}\n"
+                yield f"data: {json.dumps(sse_event['data'])}\n\n"
 
             if not session.is_alive:
                 yield f"event: session_stopped\n"
@@ -1234,6 +1252,7 @@ async def cron_stream_subscribe(session_id: str):
                     cron_id = event_data.get("cron_id", "")
                     task_id = event_data.get("task_id", "unknown")
                     task_name = event_data.get("task_name", "unknown")
+                    content = event_data.get("content", "")
                     trigger_time = event_data.get("trigger_time", "")
                     collected_events = event_data.get("events", [])
 
@@ -1243,7 +1262,7 @@ async def cron_stream_subscribe(session_id: str):
 
                     yield f"id: {cron_id}\n"
                     yield f"event: cron.message\n"
-                    yield f"data: {json.dumps({'message_id': message_id, 'task_id': task_id, 'task_name': task_name, 'content': '', 'cron_id': cron_id, 'trigger_time': trigger_time})}\n\n"
+                    yield f"data: {json.dumps({'message_id': message_id, 'task_id': task_id, 'task_name': task_name, 'content': content, 'cron_id': cron_id, 'trigger_time': trigger_time})}\n\n"
 
                     for stream_event in collected_events:
                         sse_event = _transform_event_to_sse(stream_event, message_id)
@@ -1276,6 +1295,159 @@ async def cron_stream_subscribe(session_id: str):
     )
 
 
+def _update_session_stream_state(
+    state: Optional[dict],
+    sse_event: dict,
+    current_msg_id: Optional[str] = None,
+) -> Optional[dict]:
+    """更新断线恢复状态（_session_stream_state）
+
+    - state 已存在：按事件类型累积 content/thinking/tool_calls/tool_results
+    - state 为 None：仅 tool_start/tool_result 事件会初始化（纯工具流无 message.start）
+    - 其他事件返回 None（不写入）
+    """
+    evt = sse_event["event"]
+    if state is not None:
+        if evt == "message.chunk":
+            state["content"] += sse_event["data"].get("delta", "")
+        elif evt == "message.thinking":
+            state["thinking"] += sse_event["data"].get("delta", "")
+        elif evt == "message.tool_start":
+            state.setdefault("tool_calls", []).extend(
+                sse_event["data"].get("tool_calls", [])
+            )
+        elif evt == "message.tool_result":
+            state.setdefault("tool_results", []).append(sse_event["data"])
+        return state
+    if evt in ("message.tool_start", "message.tool_result"):
+        state = {
+            "message_id": current_msg_id or sse_event["id"],
+            "content": "",
+            "thinking": "",
+            "tool_calls": [],
+            "tool_results": [],
+            "role": "assistant",
+            "timestamp": time.time(),
+        }
+        if evt == "message.tool_start":
+            state["tool_calls"].extend(sse_event["data"].get("tool_calls", []))
+        else:
+            state["tool_results"].append(sse_event["data"])
+        return state
+    return None
+
+
+def ensure_session_accumulator(session_id: str):
+    """确保会话的流状态累积任务在运行（与 SSE 订阅无关）
+
+    当消息通过 /api/chat 或 cron 推送时调用，保证即使没有 SSE 订阅，
+    会话在途消息的 content/thinking/tool_calls/tool_results 也持续累积，
+    供 /api/chat/state 断线恢复。
+
+    注意：若 session 尚未创建（消息尚未 push），这里会先创建空 session，
+    使累积任务在消息事件到来前就开始 drain（cursor=tail），避免错过首条消息。
+    """
+    if _websocket_api is None:
+        return
+    session = _websocket_api.get_session(session_id)
+    if session is None:
+        engine = getattr(_websocket_api, "_engine", None)
+        if engine is None:
+            return
+        try:
+            session = engine.get_or_create_session(session_id)
+        except Exception:
+            return
+    if session is None:
+        return
+    task = _accumulator_tasks.get(session_id)
+    if task is None or task.done():
+        # 同步确定起始游标，避免 create_task 之后 tail_cursor 已推进的竞态
+        if session_id not in _session_state_cursors:
+            _session_state_cursors[session_id] = session._event_buffer.tail_cursor
+        _accumulator_tasks[session_id] = asyncio.create_task(
+            _run_session_accumulator(session_id)
+        )
+
+
+async def _run_session_accumulator(session_id: str):
+    """常驻累积任务：独立游标 drain 会话事件缓冲区"""
+    session = None
+    try:
+        session = _websocket_api.get_session(session_id)
+        if not session:
+            return
+        cursor = _session_state_cursors.get(session_id, session._event_buffer.tail_cursor)
+        idle_polls = 0
+        while session.is_alive:
+            try:
+                events = await session._event_buffer.wait(cursor, timeout=15)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                break
+            if not events:
+                # 无新事件：若当前无在途消息且空闲较久，则退出累积任务
+                if _session_stream_state.get(session_id) is None:
+                    idle_polls += 1
+                    if idle_polls >= 20:
+                        break
+                continue
+            idle_polls = 0
+            cursor += len(events)
+            _session_state_cursors[session_id] = cursor
+            for event in events:
+                _accumulate_event(session_id, event)
+    except asyncio.CancelledError:
+        pass
+    finally:
+        _accumulator_tasks.pop(session_id, None)
+        # 会话已停止 / 异常退出时，清理残留的在途状态与游标，避免误报"进行中"
+        if session is None or not session.is_alive:
+            _session_stream_state.pop(session_id, None)
+            _session_state_cursors.pop(session_id, None)
+
+
+def _accumulate_event(session_id: str, event) -> None:
+    """累积单个引擎事件到 _session_stream_state，返回是否消息结束"""
+    if event.type in ("cron.message", "user.message"):
+        return
+
+    sse_event = _transform_event_to_sse(event, event.payload.get("message_id"))
+    if sse_event is None:
+        return
+
+    evt = sse_event["event"]
+    msg_id = sse_event["id"]
+
+    if evt in ("message.end", "error"):
+        _session_stream_state.pop(session_id, None)
+        return
+
+    state = _session_stream_state.get(session_id)
+    if state is None:
+        state = {
+            "message_id": msg_id,
+            "content": "",
+            "thinking": "",
+            "tool_calls": [],
+            "tool_results": [],
+            "role": "assistant",
+            "timestamp": time.time(),
+        }
+        cron_info = _pending_cron_info.pop(msg_id, None)
+        if cron_info:
+            state["is_cron"] = True
+            state["task_id"] = cron_info.get("task_id")
+            state["task_name"] = cron_info.get("task_name")
+            state["trigger_time"] = cron_info.get("trigger_time")
+
+    updated = _update_session_stream_state(state, sse_event, msg_id)
+    if updated is not None:
+        updated["cursor"] = _session_state_cursors.get(session_id, 0)
+        _session_stream_state[session_id] = updated
+
+
 def _transform_event_to_sse(event, target_message_id: str = None) -> Optional[dict]:
     """将 FastMind Event 转换为 SSE 事件"""
     event_map = {
@@ -1283,6 +1455,7 @@ def _transform_event_to_sse(event, target_message_id: str = None) -> Optional[di
         "stream.thinking": "message.thinking",
         "stream.tool_start": "message.tool_start",
         "stream.fragment": "message.tool_start",
+        "stream.tool_result": "message.tool_result",
         "stream.end": "message.end",
         "stream.error": "error",
         "cron.message": "cron.message",
@@ -1328,10 +1501,20 @@ def _transform_event_to_sse(event, target_message_id: str = None) -> Optional[di
             "tool_calls": tool_calls,
             "tool_info": tool_info_str,
         }
+    elif sse_event_type == "message.tool_result":
+        data = {
+            "tool_call_id": event.payload.get("tool_call_id", ""),
+            "tool_name": event.payload.get("tool_name", ""),
+            "result": event.payload.get("result", ""),
+        }
     elif sse_event_type == "error":
         data = {"error": event.payload.get("error", "unknown error")}
     else:
-        data = event.payload
+        # 浅拷贝，避免 setdefault 修改共享的 event.payload（多消费者场景）
+        data = dict(event.payload)
+
+    if isinstance(data, dict):
+        data.setdefault("message_id", msg_id)
 
     return {"id": msg_id, "event": sse_event_type, "data": data}
 

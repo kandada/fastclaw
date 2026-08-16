@@ -100,6 +100,11 @@ FastClaw is built on the core concept of **event-driven agent orchestration**. K
 
 ## Changelog
 
+### v1.1.23 (2026-08-15)
+- ✨ New: Cron jobs now support Feishu (Lark) — scheduled tasks can deliver results to Feishu chats
+- 🔧 Improvement: WebUI refactor — optimized conversation list interaction
+- 🐛 Fix: Cron scheduler fixes and regression fixes
+
 ### v1.1.22 (2026-07-22)
 - ✨ New: `skill_creator` bundled meta-skill — guides the agent to create, update and optimize skills via chat
 - ✨ New: Skills management tab in WebUI — create and edit user skills with Remote Endpoint / Secret support

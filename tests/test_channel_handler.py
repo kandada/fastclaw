@@ -112,10 +112,9 @@ def _patch_websocket_api(mock_api):
 
 def _restore_websocket_api(original):
     import gateway.router
-    if original is not None:
-        gateway.router._websocket_api = original
-    elif hasattr(gateway.router, "_websocket_api"):
-        delattr(gateway.router, "_websocket_api")
+    # 始终恢复为原始值（含 None），不要 delattr —— 删除属性会让后续用例引用
+    # _websocket_api 时抛 NameError（例如 delete_session 里的 `if _websocket_api is not None`）
+    gateway.router._websocket_api = original
 
 
 class TestChannelMessageHandler:

@@ -90,6 +90,21 @@ def pytest_runtest_teardown(item, nextitem):
     pass
 
 
+@pytest.fixture(autouse=True)
+def _reset_workspace_cache():
+    """每个用例开始前清空 get_workspace_path 的 lru_cache。
+
+    部分测试（test_config / test_context_unload / test_messages_storage /
+    test_skills_mgmt / test_timestamp_preserved）会临时设置 FASTCLAW_WORKSPACE
+    并清空缓存；若不在这里再清一次，缓存会残留指向临时目录，导致后续用例
+    （agents/skills 列表等）解析到空目录而失败。放在 setup 阶段可避免与
+    monkeypatch 的 env 恢复顺序竞态。
+    """
+    from core.config import get_workspace_path
+    get_workspace_path.cache_clear()
+    yield
+
+
 @pytest.fixture
 def backup_sessions_json():
     """备份和恢复 sessions.json"""
