@@ -456,3 +456,306 @@ console.log(JSON.stringify({
         assert out["thinkText"] == "r1\n\nr2\n\nr3", out
         assert out["types"][0] == "thinking"
         assert out["lastType"] == "text"
+
+
+class TestFrontendToolCallDedup:
+    """ensureToolCallBlock / addToolResultBlock：按 id 精确匹配，同名不同调用不合并
+
+    回归：此前按名称回退匹配导致 ReAct 多轮复用同一工具、或同轮并行同名调用时，
+    后到的 tool_call 被并入已存在的同名块 → 进行中显示"漏 tool_call"。
+    """
+
+    def _blocks(self, frontend_funcs, probe, stubs=""):
+        return json.loads(_run_frontend(frontend_funcs, probe, stubs))
+
+    def test_same_name_tool_across_rounds_kept(self, frontend_funcs):
+        """ReAct 两轮调用同一 run_shell：生成 2 个独立 tool_call 块"""
+        probe = r"""
+handleStreamStart({ message_id: 'm1' }, 'm1');
+const msg = streamingMsgById.get('m1');
+handleStreamToolStart({ tool_calls: [{ id: 'c1', function: { name: 'run_shell', arguments: '{"command":"ls"}' } }] }, 'm1');
+handleStreamToolStart({ tool_calls: [{ id: 'c2', function: { name: 'run_shell', arguments: '{"command":"pwd"}' } }] }, 'm1');
+const calls = msg.blocks.filter(b => b.type === 'tool_call');
+console.log(JSON.stringify({
+  count: calls.length,
+  ids: calls.map(b => b.id),
+  names: calls.map(b => b.name),
+  types: msg.blocks.map(b => b.type),
+}));
+"""
+        out = self._blocks(frontend_funcs, probe)
+        assert out["count"] == 2, f"同名工具两轮被合并: {out}"
+        assert out["ids"] == ["c1", "c2"], out
+        assert out["names"] == ["run_shell", "run_shell"], out
+
+    def test_parallel_same_name_tool_calls_kept(self, frontend_funcs):
+        """同轮并行两个同名 run_shell：各自成块"""
+        probe = r"""
+handleStreamStart({ message_id: 'm1' }, 'm1');
+const msg = streamingMsgById.get('m1');
+handleStreamToolStart({ tool_calls: [
+  { id: 'p1', function: { name: 'run_shell', arguments: '{"command":"a"}' } },
+  { id: 'p2', function: { name: 'run_shell', arguments: '{"command":"b"}' } }
+] }, 'm1');
+const calls = msg.blocks.filter(b => b.type === 'tool_call');
+console.log(JSON.stringify({ count: calls.length, ids: calls.map(b => b.id) }));
+"""
+        out = self._blocks(frontend_funcs, probe)
+        assert out["count"] == 2, out
+        assert out["ids"] == ["p1", "p2"], out
+
+    def test_duplicate_frame_idempotent_by_id(self, frontend_funcs):
+        """断线续传重复帧（同一 id 再次 tool_start）：不重复建块，更新 args"""
+        probe = r"""
+handleStreamStart({ message_id: 'm1' }, 'm1');
+const msg = streamingMsgById.get('m1');
+handleStreamToolStart({ tool_calls: [{ id: 'c1', function: { name: 'run_shell', arguments: '{"command":"ls"}' } }] }, 'm1');
+handleStreamToolStart({ tool_calls: [{ id: 'c1', function: { name: 'run_shell', arguments: '{"command":"ls -la"}' } }] }, 'm1');
+const calls = msg.blocks.filter(b => b.type === 'tool_call');
+console.log(JSON.stringify({ count: calls.length, args: calls[0].argsText }));
+"""
+        out = self._blocks(frontend_funcs, probe)
+        assert out["count"] == 1, out
+        assert '"ls -la"' in out["args"], out
+
+    def test_empty_id_name_fallback(self, frontend_funcs):
+        """id 为空（provider 不带 id）：退化为按名称匹配，同名合并保底"""
+        probe = r"""
+handleStreamStart({ message_id: 'm1' }, 'm1');
+const msg = streamingMsgById.get('m1');
+handleStreamToolStart({ tool_calls: [{ id: '', function: { name: 'run_shell', arguments: '{"command":"ls"}' } }] }, 'm1');
+handleStreamToolStart({ tool_calls: [{ id: '', function: { name: 'run_shell', arguments: '{"command":"pwd"}' } }] }, 'm1');
+const calls = msg.blocks.filter(b => b.type === 'tool_call');
+console.log(JSON.stringify({ count: calls.length, args: calls[0].argsText }));
+"""
+        out = self._blocks(frontend_funcs, probe)
+        assert out["count"] == 1, out
+        assert '"pwd"' in out["args"], out
+
+    def test_tool_result_marks_only_matching_call_done(self, frontend_funcs):
+        """round2 的 tool_result 只标记 round2 的 tool_call 为 done，不误伤 round1"""
+        probe = r"""
+handleStreamStart({ message_id: 'm1' }, 'm1');
+const msg = streamingMsgById.get('m1');
+handleStreamToolStart({ tool_calls: [{ id: 'c1', function: { name: 'run_shell', arguments: '{"command":"ls"}' } }] }, 'm1');
+handleStreamToolStart({ tool_calls: [{ id: 'c2', function: { name: 'run_shell', arguments: '{"command":"pwd"}' } }] }, 'm1');
+handleStreamToolResult({ tool_call_id: 'c2', tool_name: 'run_shell', result: 'out2' }, 'm1');
+const calls = msg.blocks.filter(b => b.type === 'tool_call');
+console.log(JSON.stringify({ count: calls.length, done: calls.map(b => b.done) }));
+"""
+        out = self._blocks(frontend_funcs, probe)
+        assert out["count"] == 2, out
+        assert out["done"] == [False, True], out
+
+    def test_full_react_chain_live_blocks(self, frontend_funcs):
+        """完整 ReAct 链（思考+内容+工具×2+最终回答）：块序与数量正确，不丢 tool_call"""
+        probe = r"""
+handleStreamStart({ message_id: 'm1' }, 'm1');
+const msg = streamingMsgById.get('m1');
+pendingDeltas.push({ msg, type: 'thinking', delta: 'T1' });
+pendingDeltas.push({ msg, type: 'text', delta: '先看看' });
+flushPendingDeltas();
+handleStreamToolStart({ tool_calls: [{ id: 'c1', function: { name: 'run_shell', arguments: '{"command":"ls"}' } }] }, 'm1');
+handleStreamToolResult({ tool_call_id: 'c1', tool_name: 'run_shell', result: 'out1' }, 'm1');
+pendingDeltas.push({ msg, type: 'thinking', delta: 'T2' });
+pendingDeltas.push({ msg, type: 'text', delta: '再看看' });
+flushPendingDeltas();
+handleStreamToolStart({ tool_calls: [{ id: 'c2', function: { name: 'run_shell', arguments: '{"command":"pwd"}' } }] }, 'm1');
+handleStreamToolResult({ tool_call_id: 'c2', tool_name: 'run_shell', result: 'out2' }, 'm1');
+pendingDeltas.push({ msg, type: 'thinking', delta: 'T3' });
+pendingDeltas.push({ msg, type: 'text', delta: '完成' });
+flushPendingDeltas();
+const calls = msg.blocks.filter(b => b.type === 'tool_call');
+console.log(JSON.stringify({
+  types: msg.blocks.map(b => b.type),
+  toolCallCount: calls.length,
+  thinkCount: msg.blocks.filter(b => b.type === 'thinking').length,
+}));
+"""
+        out = self._blocks(frontend_funcs, probe)
+        assert out["toolCallCount"] == 2, f"进行中漏 tool_call: {out}"
+        assert out["thinkCount"] == 1, "thinking 被切分"
+        # thinking → content → tool_call → tool_result → content → tool_call → tool_result → content
+        assert out["types"] == [
+            "thinking", "text", "tool_call", "tool_result",
+            "text", "tool_call", "tool_result", "text",
+        ], out
+        # content 均位于其所属 tool_call 之前
+        assert out["types"].index("text") < out["types"].index("tool_call"), out
+
+
+class TestFrontendHistoryOrder:
+    """buildHistoryMessages：content 在 tool_call 之前，与流式一致"""
+
+    def test_replay_content_before_tool_call(self, frontend_funcs):
+        """单轮 assistant(content + tool_calls)：顺序为 thinking → content → tool_call"""
+        probe = r"""
+const history = [
+  { role: 'user', content: 'q', timestamp: 1 },
+  { role: 'assistant', content: '结论', reasoning_content: 'r',
+    tool_calls: [{ id: 'a1', type: 'function', function: { name: 'run_shell', arguments: '{"cmd":"1"}' } }], timestamp: 2 },
+  { role: 'tool', tool_call_id: 'a1', content: '[run_shell]: out', timestamp: 3 },
+];
+const b = buildHistoryMessages(history)[1].blocks;
+console.log(JSON.stringify({ types: b.map(x => x.type) }));
+"""
+        out = json.loads(_run_frontend(frontend_funcs, probe))
+        assert out["types"] == ["thinking", "text", "tool_call", "tool_result"], out
+
+    def test_replay_multi_round_order_matches_live(self, frontend_funcs):
+        """多轮 ReAct：重建后的块序与进行中完全一致（回归：内容曾排在 tool_call 后）"""
+        probe = r"""
+const history = [
+  { role: 'user', content: 'q', timestamp: 1 },
+  { role: 'assistant', content: '先看看', reasoning_content: 'r1', tool_calls: [
+      { id: 'a1', type: 'function', function: { name: 'run_shell', arguments: '{"cmd":"1"}' } }], timestamp: 2 },
+  { role: 'tool', tool_call_id: 'a1', content: '[run_shell]: out1', timestamp: 3 },
+  { role: 'assistant', content: '再看看', reasoning_content: 'r2', tool_calls: [
+      { id: 'a2', type: 'function', function: { name: 'run_shell', arguments: '{"cmd":"2"}' } }], timestamp: 4 },
+  { role: 'tool', tool_call_id: 'a2', content: '[run_shell]: out2', timestamp: 5 },
+  { role: 'assistant', content: '完成', reasoning_content: 'r3', timestamp: 6 },
+];
+const b = buildHistoryMessages(history)[1].blocks;
+console.log(JSON.stringify({ types: b.map(x => x.type), toolCallCount: b.filter(x => x.type === 'tool_call').length }));
+"""
+        out = json.loads(_run_frontend(frontend_funcs, probe))
+        assert out["toolCallCount"] == 2, out
+        assert out["types"] == [
+            "thinking", "text", "tool_call", "tool_result",
+            "text", "tool_call", "tool_result", "text",
+        ], out
+
+    def test_replay_no_tool_call_plain_answer(self, frontend_funcs):
+        """无工具调用时：thinking → content 顺序不变，无副作用"""
+        probe = r"""
+const history = [
+  { role: 'user', content: 'q', timestamp: 1 },
+  { role: 'assistant', content: '纯回答', reasoning_content: 'r', timestamp: 2 },
+];
+const b = buildHistoryMessages(history)[1].blocks;
+console.log(JSON.stringify({ types: b.map(x => x.type), texts: b.map(x => x.text) }));
+"""
+        out = json.loads(_run_frontend(frontend_funcs, probe))
+        assert out["types"] == ["thinking", "text"], out
+        assert out["texts"] == ["r", "纯回答"], out
+
+
+class TestFrontendStreamStateOrder:
+    """applyStreamState（断线恢复）：content 在 tool_call 前、tool_call 不丢失"""
+
+    _STUBS = "let _recoverMsgId = null;"
+
+    def test_state_rebuild_content_before_tool_call(self, frontend_funcs):
+        """恢复重建：顺序为 thinking → content → tool_call → tool_result"""
+        probe = r"""
+applyStreamState({
+  message_id: 'm1', role: 'assistant', thinking: 'r1', content: '结论',
+  tool_calls: [{ id: 'c1', function: { name: 'run_shell', arguments: '{"cmd":"1"}' } }],
+  tool_results: [{ tool_call_id: 'c1', tool_name: 'run_shell', result: 'out' }],
+});
+const b = messages.value[0].blocks;
+console.log(JSON.stringify({ types: b.map(x => x.type) }));
+"""
+        out = json.loads(_run_frontend(frontend_funcs, probe, self._STUBS))
+        assert out["types"] == ["thinking", "text", "tool_call", "tool_result"], out
+
+    def test_state_rebuild_all_tool_calls_present(self, frontend_funcs):
+        """恢复重建：同名多轮 tool_calls 全部保留（不丢）"""
+        probe = r"""
+applyStreamState({
+  message_id: 'm2', role: 'assistant', thinking: '', content: '',
+  tool_calls: [
+    { id: 'c1', function: { name: 'run_shell', arguments: '{"cmd":"1"}' } },
+    { id: 'c2', function: { name: 'run_shell', arguments: '{"cmd":"2"}' } },
+  ],
+  tool_results: [],
+});
+const b = messages.value[0].blocks;
+const calls = b.filter(x => x.type === 'tool_call');
+console.log(JSON.stringify({ count: calls.length, ids: calls.map(x => x.id) }));
+"""
+        out = json.loads(_run_frontend(frontend_funcs, probe, self._STUBS))
+        assert out["count"] == 2, out
+        assert out["ids"] == ["c1", "c2"], out
+
+    def test_state_rebuild_no_content_no_thinking(self, frontend_funcs):
+        """纯工具流恢复：无 content/thinking 时 tool_call 仍正常生成"""
+        probe = r"""
+applyStreamState({
+  message_id: 'm3', role: 'assistant', thinking: '', content: '',
+  tool_calls: [{ id: 'c1', function: { name: 'run_shell', arguments: '{"cmd":"1"}' } }],
+  tool_results: [],
+});
+const b = messages.value[0].blocks;
+console.log(JSON.stringify({ types: b.map(x => x.type), count: messages.value.length }));
+"""
+        out = json.loads(_run_frontend(frontend_funcs, probe, self._STUBS))
+        assert out["types"] == ["tool_call"], out
+        assert out["count"] == 1
+
+
+class TestFrontendToolResultLabel:
+    """工具结果块标题统一显示为 "tool"（与数据层去掉 [name] 前缀保持一致）"""
+
+    def test_live_tool_result_labeled_tool(self, frontend_funcs):
+        """进行中：tool_result 块 name 恒为 'tool'，不显示具体工具名"""
+        probe = r"""
+handleStreamStart({ message_id: 'm1' }, 'm1');
+const msg = streamingMsgById.get('m1');
+handleStreamToolStart({ tool_calls: [{ id: 'c1', function: { name: 'run_shell', arguments: '{"command":"ls"}' } }] }, 'm1');
+handleStreamToolResult({ tool_call_id: 'c1', tool_name: 'run_shell', result: 'out1' }, 'm1');
+const res = msg.blocks.filter(b => b.type === 'tool_result');
+console.log(JSON.stringify({ count: res.length, name: res[0].name, text: res[0].text }));
+"""
+        out = json.loads(_run_frontend(frontend_funcs, probe))
+        assert out["count"] == 1
+        assert out["name"] == "tool", out
+
+    def test_replay_tool_result_labeled_tool_new_format(self, frontend_funcs):
+        """回看（新格式无前缀）：tool_result 块 name 为 'tool'"""
+        probe = r"""
+const history = [
+  { role: 'user', content: 'q', timestamp: 1 },
+  { role: 'assistant', content: '', reasoning_content: 'r', tool_calls: [
+      { id: 'a1', type: 'function', function: { name: 'run_shell', arguments: '{"cmd":"1"}' } }], timestamp: 2 },
+  { role: 'tool', tool_call_id: 'a1', content: 'out1', timestamp: 3 },
+];
+const res = buildHistoryMessages(history)[1].blocks.filter(b => b.type === 'tool_result');
+console.log(JSON.stringify({ count: res.length, name: res[0].name, text: res[0].text }));
+"""
+        out = json.loads(_run_frontend(frontend_funcs, probe))
+        assert out["count"] == 1
+        assert out["name"] == "tool", out
+        assert out["text"] == "out1", out
+
+    def test_replay_tool_result_labeled_tool_old_format(self, frontend_funcs):
+        """回看（旧格式带 [run_shell] 前缀）：前缀剥离，标题仍为 'tool'"""
+        probe = r"""
+const history = [
+  { role: 'user', content: 'q', timestamp: 1 },
+  { role: 'assistant', content: '', reasoning_content: 'r', tool_calls: [
+      { id: 'a1', type: 'function', function: { name: 'run_shell', arguments: '{"cmd":"1"}' } }], timestamp: 2 },
+  { role: 'tool', tool_call_id: 'a1', content: '[run_shell]: out1', timestamp: 3 },
+];
+const res = buildHistoryMessages(history)[1].blocks.filter(b => b.type === 'tool_result');
+console.log(JSON.stringify({ count: res.length, name: res[0].name, text: res[0].text }));
+"""
+        out = json.loads(_run_frontend(frontend_funcs, probe))
+        assert out["count"] == 1
+        assert out["name"] == "tool", out
+        assert out["text"] == "out1", out
+
+    def test_state_rebuild_tool_result_labeled_tool(self, frontend_funcs):
+        """断线恢复：tool_result 块 name 恒为 'tool'"""
+        probe = r"""
+applyStreamState({
+  message_id: 'm1', role: 'assistant', thinking: '', content: '',
+  tool_calls: [{ id: 'c1', function: { name: 'run_shell', arguments: '{"cmd":"1"}' } }],
+  tool_results: [{ tool_call_id: 'c1', tool_name: 'run_shell', result: 'out' }],
+});
+const res = messages.value[0].blocks.filter(b => b.type === 'tool_result');
+console.log(JSON.stringify({ count: res.length, name: res[0].name }));
+"""
+        out = json.loads(_run_frontend(frontend_funcs, probe, "let _recoverMsgId = null;"))
+        assert out["count"] == 1
+        assert out["name"] == "tool", out

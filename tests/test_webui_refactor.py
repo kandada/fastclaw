@@ -587,8 +587,9 @@ console.log(JSON.stringify(out));
             "tool_call", "tool_result",
             "text",
         ]
+        # tool_call 保留工具名；tool_result 统一显示为 "tool"（数据层已去掉 [name] 前缀）
         assert node_env["toolchainNames"] == [
-            "run_shell", "run_shell", "run_skills", "run_skills",
+            "run_shell", "tool", "run_skills", "tool",
         ]
 
 

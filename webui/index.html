@@ -998,7 +998,10 @@
                     const fn = (tc && tc.function) || {};
                     const id = (tc && tc.id) || '';
                     for (const b of msg.blocks) {
-                        if (b.type === 'tool_call' && (b.id === id || (id && b.name === fn.name))) {
+                        if (b.type !== 'tool_call') continue;
+                        // 优先按 id 精确匹配（不同轮次/并行的同名工具调用互不合并）；
+                        // 仅当 id 为空（个别 provider 不带 id）时才退化为按名称匹配
+                        if (id ? b.id === id : b.name === fn.name) {
                             if (fn.arguments) {
                                 b.argsText = prettyJson(fn.arguments);
                                 b.preview = toolCallPreview(tc);
@@ -1029,7 +1032,9 @@
                     const tcId = (data && data.tool_call_id) || '';
                     const tName = (data && data.tool_name) || '';
                     for (const b of msg.blocks) {
-                        if (b.type === 'tool_call' && (b.id === tcId || (tcId && b.name === tName))) {
+                        if (b.type !== 'tool_call') continue;
+                        // 与 ensureToolCallBlock 对称：有 id 时按 id 精确标记 done，避免误伤同名调用
+                        if (tcId ? b.id === tcId : b.name === tName) {
                             b.done = true;
                             b._open = false;
                         }
@@ -1040,7 +1045,8 @@
                     }
                     msg.blocks.push({
                         type: 'tool_result',
-                        name: tName || 'tool',
+                        // 与历史重建一致：工具结果统一显示为 "tool"（数据层已去掉 [name] 前缀，见 fastclaw_agent）
+                        name: 'tool',
                         text: resultText,
                         tool_call_id: tcId,
                         sizeLabel: resultText.length > 0 ? resultText.length + ' B' : '',
@@ -1174,6 +1180,8 @@
                             const blocks = [];
                             const thinkingText = m.thinking || m.reasoning_content || '';
                             if (thinkingText) blocks.push({ type: 'thinking', text: thinkingText, _open: false });
+                            // 顺序与流式一致：content 在 tool_call 之前（thinking → content → tool_call）
+                            if (m.content) blocks.push({ type: 'text', text: m.content, _open: false });
                             if (m.tool_calls && m.tool_calls.length) {
                                 for (const tc of m.tool_calls) {
                                     blocks.push({
@@ -1187,7 +1195,6 @@
                                     });
                                 }
                             }
-                            if (m.content) blocks.push({ type: 'text', text: m.content, _open: false });
                             if (current) {
                                 const lastBlock = current.blocks[current.blocks.length - 1];
                                 const canMerge = lastBlock && lastBlock.type === 'tool_result';
@@ -1231,7 +1238,8 @@
                             }
                             current.blocks.push({
                                 type: 'tool_result',
-                                name: parsed.name || 'tool',
+                                // 统一显示为 "tool"，与流式一致（旧数据 [name] 前缀也不再作为标题）
+                                name: 'tool',
                                 text: parsed.body,
                                 tool_call_id: m.tool_call_id || '',
                                 sizeLabel: (parsed.body || '').length + ' B',
@@ -1345,6 +1353,8 @@
                     msg._isStreaming = true;
                     const blocks = [];
                     if (state.thinking) blocks.push({ type: 'thinking', text: state.thinking, _open: true });
+                    // 顺序与流式/历史一致：content 在 tool_call 之前（thinking → content → tool_call → tool_result）
+                    if (state.content) blocks.push({ type: 'text', text: state.content, _open: false });
                     (state.tool_calls || []).forEach(tc => {
                         blocks.push({
                             type: 'tool_call',
@@ -1363,14 +1373,13 @@
                         }
                         blocks.push({
                             type: 'tool_result',
-                            name: tr.tool_name || 'tool',
+                            name: 'tool',
                             text: rText || '',
                             tool_call_id: tr.tool_call_id || '',
                             sizeLabel: (rText || '').length + ' B',
                             _open: true
                         });
                     });
-                    if (state.content) blocks.push({ type: 'text', text: state.content, _open: false });
                     msg.blocks = blocks;
                     if (state.is_cron) {
                         msg.isCron = true;

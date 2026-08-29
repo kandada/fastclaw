@@ -105,6 +105,9 @@ def _mock_llm_and_save(monkeypatch):
     """统一 mock LLM 客户端与消息落盘，避免真实网络/磁盘写入"""
     monkeypatch.setattr(app_mod, "_get_llm_client", lambda cfg: MockLLM())
     monkeypatch.setattr(app_mod, "_save_messages_async", _noop)
+    # 测试会话不绑定真实 agent（否则 fastclaw_agent 会按会话 DB 重载磁盘配置，
+    # 覆盖掉测试注入的 _agent_config，导致 gateway 不受控）
+    monkeypatch.setattr(app_mod, "load_session_agent_id", lambda sid: "")
 
 
 # ---------------------------------------------------------------------------

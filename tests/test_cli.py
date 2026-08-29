@@ -172,12 +172,26 @@ class TestCLISession:
     def test_create_cli_session(self):
         from cli import create_cli_session
 
-        sid = create_cli_session()
+        with patch("cli.load_settings", return_value={"default_agent_id": "my_agent"}):
+            sid = create_cli_session()
         try:
             assert sid.startswith("cli_")
             assert len(sid) == len("cli_") + 8
             sessions = _load()
             assert sid in sessions
+            # CLI 会话应绑定 settings.json 的 default_agent_id，而非硬编码 main_agent
+            assert sessions[sid]["agent_id"] == "my_agent"
+        finally:
+            _cleanup_session(sid)
+
+    def test_create_cli_session_falls_back_to_main_agent(self):
+        """settings 无 default_agent_id 时回退 main_agent"""
+        from cli import create_cli_session
+
+        with patch("cli.load_settings", return_value={}):
+            sid = create_cli_session()
+        try:
+            sessions = _load()
             assert sessions[sid]["agent_id"] == "main_agent"
         finally:
             _cleanup_session(sid)

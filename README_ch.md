@@ -100,6 +100,13 @@ FastClaw 基于**事件驱动的 Agent 编排**核心概念。主要设计原则
 
 ## 更新日志
 
+### v1.1.24 (2026-08-29)
+- ✨ 新增：完整支持 Anthropic 网关 — Messages API 流式、工具调用、扩展思考（adaptive → enabled → none 状态机自动降级），并自动适配 MiniMax / DeepSeek / Moonshot 的 Anthropic 兼容端点
+- ✨ 新增：OpenAI 网关 thinking 兼容 — 统一提取 `reasoning_content` / `thinking` 字段 / `<think>...</think>` 标签（MiniMax-M3、Qwen3 等）
+- 🐛 修复：WebUI 进行中不再漏显 tool_call — ReAct 多轮复用同名工具、同轮并行调用各自成块（按 id 精确匹配）
+- 🐛 修复：WebUI 消息块顺序 — 回看与断线恢复中 content 排在 tool_call 之前，与进行中一致（thinking → content → tool_call → tool_result）
+- 🐛 修复：WebUI 工具结果卡统一显示为 "tool"，与存储格式一致
+
 ### v1.1.23 (2026-08-15)
 - ✨ 新增：定时任务支持飞书 — 调度任务可将结果发送到飞书会话
 - 🔧 优化：WebUI 重构 — 优化会话列表交互

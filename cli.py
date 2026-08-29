@@ -24,7 +24,7 @@ except ImportError:
 from fastmind import Event
 
 if __package__ in (None, ""):
-    from core.app import start
+    from core.app import load_settings, start
     from gateway.channels.handlers import (
         handle_channel_command,
         load_sessions,
@@ -32,7 +32,7 @@ if __package__ in (None, ""):
         get_last_session,
     )
 else:
-    from .core.app import start
+    from .core.app import load_settings, start
     from .gateway.channels.handlers import (
         handle_channel_command,
         load_sessions,
@@ -44,12 +44,16 @@ logging.disable(logging.WARNING)
 
 
 def create_cli_session():
-    """创建 CLI 会话并保存到 sessions.json"""
+    """创建 CLI 会话并保存到 sessions.json
+
+    绑定 settings.json 的 default_agent_id，而不是硬编码 main_agent。
+    """
     sessions = load_sessions()
     new_session_id = f"cli_{uuid.uuid4().hex[:8]}"
+    agent_id = load_settings().get("default_agent_id", "main_agent")
     sessions[new_session_id] = {
         "session_id": new_session_id,
-        "agent_id": "main_agent",
+        "agent_id": agent_id,
         "created_at": str(uuid.uuid4()),
         "last_active_time": int(__import__("time").time()),
     }
@@ -129,40 +133,44 @@ async def chat(new_session=False, session_id=None):
     print("=" * 50)
 
     async def consume_stream():
-        """消费流式输出事件"""
-        buffer = ""
-        thinking_shown = False
+        """消费流式输出事件
 
-        def _clear_thinking():
-            nonlocal thinking_shown
-            if thinking_shown:
-                print("\r" + " " * 30 + "\r", end="", flush=True)
-                thinking_shown = False
+        thinking 内容实时展示（灰色），正文/工具调用开始时换行分隔。
+        """
+        buffer = ""
+        thinking_started = False
+
+        def _print_safe(text):
+            try:
+                print(text, end="", flush=True)
+            except (UnicodeEncodeError, UnicodeDecodeError):
+                safe = text.encode("utf-8", errors="replace").decode(
+                    "utf-8", errors="replace"
+                )
+                print(safe, end="", flush=True)
+
+        def _end_thinking():
+            """thinking 段结束：换行分隔正文"""
+            nonlocal thinking_started
+            if thinking_started:
+                thinking_started = False
+                print("\n", end="", flush=True)
 
         try:
             async for event in api.stream_events(session_id):
                 if event.type == "stream.thinking":
-                    if not thinking_shown:
-                        thinking_shown = True
-                        print()
-                        print(
-                            f"{colored('[Thinking...]', 'cyan')}",
-                            end="",
-                            flush=True,
-                        )
+                    delta = event.payload.get("delta", "")
+                    if not thinking_started:
+                        thinking_started = True
+                        print(f"\n{colored('💭 Thinking:', 'cyan')}", end="", flush=True)
+                    _print_safe(colored(delta, "grey"))
                 elif event.type == "stream.chunk":
-                    _clear_thinking()
+                    _end_thinking()
                     delta = event.payload.get("delta", "")
                     buffer += delta
-                    try:
-                        print(delta, end="", flush=True)
-                    except (UnicodeEncodeError, UnicodeDecodeError):
-                        safe_delta = delta.encode("utf-8", errors="replace").decode(
-                            "utf-8", errors="replace"
-                        )
-                        print(safe_delta, end="", flush=True)
+                    _print_safe(delta)
                 elif event.type == "stream.fragment":
-                    _clear_thinking()
+                    _end_thinking()
                     tool_calls = event.payload.get("tool_calls", [])
                     if tool_calls:
                         seen = set()
@@ -177,11 +185,11 @@ async def chat(new_session=False, session_id=None):
                     if content:
                         pass
                 elif event.type == "stream.end":
-                    _clear_thinking()
+                    _end_thinking()
                     print()
                     return buffer
                 elif event.type == "stream.error":
-                    _clear_thinking()
+                    _end_thinking()
                     print(f"\n[Error: {event.payload.get('error', 'Unknown error')}]")
                     return None
         except asyncio.CancelledError:

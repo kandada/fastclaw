@@ -21,8 +21,26 @@ import time
 
 if __package__ in (None, ""):
     from core.prompts import format_system_prompt, SYSTEM_PROMPT
+    from core.thinking_extractor import OpenAIThinkingExtractor
+    from core.anthropic_thinking import (
+        DEFAULT_BUDGET_TOKENS,
+        THINKING_MODE_ADAPTIVE,
+        THINKING_MODE_NONE,
+        is_thinking_mode_rejected,
+        next_thinking_mode,
+        thinking_kwargs_for_mode,
+    )
 else:
     from .prompts import format_system_prompt, SYSTEM_PROMPT
+    from .thinking_extractor import OpenAIThinkingExtractor
+    from .anthropic_thinking import (
+        DEFAULT_BUDGET_TOKENS,
+        THINKING_MODE_ADAPTIVE,
+        THINKING_MODE_NONE,
+        is_thinking_mode_rejected,
+        next_thinking_mode,
+        thinking_kwargs_for_mode,
+    )
 
 _IS_PACKAGE_MODE = __package__ and __package__.startswith("fastclaw")
 if _IS_PACKAGE_MODE:
@@ -57,6 +75,8 @@ _CACHED_SETTINGS_MTIME = 0
 _AGENT_CONFIG_CACHE = {}
 _AGENT_PERSONALITY_CACHE = {}
 _LLM_CLIENT_CACHE = {}
+# anthropic 网关 thinking 模式按模型缓存（会话进程内生效），避免每次重复降级重试
+_ANTHROPIC_THINKING_MODE_CACHE = {}
 
 
 def _get_file_mtime(path: Path) -> float:
@@ -512,14 +532,62 @@ WORKSPACE_PATH = get_workspace_path()
 CONFIRM_PREFIX = "CONFIRM:"
 
 
-def _get_llm_client(llm_config: dict) -> AsyncOpenAI:
+def _adjust_anthropic_base_url(base_url: str) -> str:
+    """规范化 anthropic 网关的 base_url。
+
+    - MiniMax / DeepSeek / Moonshot 的 Anthropic 兼容端点形如 ``.../anthropic``，
+      把用户给的 OpenAI 风格 ``.../v1``（或裸域名）调整为 ``.../anthropic``；
+      Anthropic SDK 内部按 base_url + /v1/messages 拼接。
+    - 真 Anthropic（api.anthropic.com）：SDK 内部已拼 /v1/messages，去掉用户可能多写的尾部 /v1。
+    """
+    base = (base_url or "").strip().rstrip("/")
+    if not base:
+        return ""
+    low = base.lower()
+    if any(p in low for p in ("minimax", "deepseek", "moonshot")):
+        if base.endswith("/v1/anthropic"):
+            return base.replace("/v1/anthropic", "/anthropic")
+        if base.endswith("/v1"):
+            return base[: -len("/v1")] + "/anthropic"
+        if not base.endswith("/anthropic"):
+            return base + "/anthropic"
+        return base
+    # 真 Anthropic / 其他：去掉尾部 /v1，避免 SDK 拼成 /v1/v1/messages
+    if base.endswith("/v1"):
+        base = base[: -len("/v1")]
+    return base
+
+
+def _get_llm_client(llm_config: dict):
+    """按 gateway 创建 LLM 客户端（openai / anthropic）。
+
+    - openai：AsyncOpenAI（默认 deepseek base_url）
+    - anthropic：AsyncAnthropic，base_url 经 ``_adjust_anthropic_base_url`` 规范化
+    """
+    gateway = (llm_config.get("gateway") or "openai").lower()
     api_key = llm_config.get("api_key", "")
-    base_url = llm_config.get("base_url", "https://api.deepseek.com/v1")
+    base_url = llm_config.get("base_url", "")
     timeout = llm_config.get("timeout", 120) or 120
-    cache_key = (api_key, base_url, timeout)
+
+    if gateway == "anthropic":
+        from anthropic import AsyncAnthropic
+
+        normalized = _adjust_anthropic_base_url(base_url)
+        cache_key = ("anthropic", api_key, normalized, timeout)
+        client = _LLM_CLIENT_CACHE.get(cache_key)
+        if client is None:
+            kwargs = {"api_key": api_key, "timeout": timeout}
+            if normalized:
+                kwargs["base_url"] = normalized
+            client = AsyncAnthropic(**kwargs)
+            _LLM_CLIENT_CACHE[cache_key] = client
+        return client
+
+    default_base = base_url or "https://api.deepseek.com/v1"
+    cache_key = ("openai", api_key, default_base, timeout)
     client = _LLM_CLIENT_CACHE.get(cache_key)
     if client is None:
-        client = AsyncOpenAI(api_key=api_key, base_url=base_url, timeout=timeout)
+        client = AsyncOpenAI(api_key=api_key, base_url=default_base, timeout=timeout)
         _LLM_CLIENT_CACHE[cache_key] = client
     return client
 
@@ -824,6 +892,401 @@ async def _aiter_with_timeout(aiter, timeout):
             break
 
 
+def _parse_json_arg(arg) -> dict:
+    """把工具调用参数解析为 dict（兼容 dict / JSON 字符串 / 非法输入）。"""
+    if isinstance(arg, dict):
+        return arg
+    if arg is None:
+        return {}
+    try:
+        parsed = json.loads(arg)
+        return parsed if isinstance(parsed, dict) else {}
+    except (TypeError, json.JSONDecodeError):
+        return {}
+
+
+def _to_anthropic_messages(llm_messages: list) -> list:
+    """将 OpenAI 格式的消息历史转换为 Anthropic Messages API 格式。
+
+    - assistant(tool_calls) → 含 tool_use 块的 content 数组
+    - reasoning_content(+thinking_signature) → thinking 块（多轮需回传 signature）
+    - tool 结果 → user 消息内的 tool_result 块
+    - system 消息跳过（调用方通过顶层 system 参数传入）
+    """
+    result = []
+    for m in llm_messages:
+        role = m.get("role")
+        if role == "user":
+            result.append({"role": "user", "content": m.get("content", "")})
+        elif role == "assistant":
+            blocks = []
+            think = m.get("reasoning_content") or m.get("thinking") or ""
+            if think:
+                block = {"type": "thinking", "thinking": think}
+                sig = m.get("thinking_signature")
+                if sig:
+                    block["signature"] = sig
+                blocks.append(block)
+            content = m.get("content", "")
+            if content:
+                blocks.append({"type": "text", "text": content})
+            for tc in m.get("tool_calls") or []:
+                fn = tc.get("function") or {}
+                blocks.append(
+                    {
+                        "type": "tool_use",
+                        "id": tc.get("id", ""),
+                        "name": fn.get("name", ""),
+                        "input": _parse_json_arg(fn.get("arguments", "{}")),
+                    }
+                )
+            result.append({"role": "assistant", "content": blocks})
+        elif role == "tool":
+            result.append(
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": m.get("tool_call_id", ""),
+                            "content": m.get("content", ""),
+                        }
+                    ],
+                }
+            )
+    return result
+
+
+def _to_anthropic_tools(tool_schemas: list) -> list:
+    """OpenAI 工具 schema → Anthropic tools 格式（name/description/input_schema）。"""
+    result = []
+    for schema in tool_schemas or []:
+        fn = schema.get("function", schema)
+        result.append(
+            {
+                "name": fn.get("name", ""),
+                "description": fn.get("description", ""),
+                "input_schema": fn.get("parameters") or {"type": "object", "properties": {}},
+            }
+        )
+    return result
+
+
+async def _stream_llm_response(
+    llm_config: dict,
+    llm_messages: list,
+    tool_schemas: list,
+    system_prompt: str,
+    msg_id: str,
+    session_id: str,
+    output_queue,
+    stream_chunk_timeout: int,
+):
+    """按 gateway 分流调用 LLM 并流式输出。
+
+    流式过程中直接向 output_queue 发出 stream.thinking / stream.chunk 事件。
+    返回 (full_content, reasoning_content, tool_calls_buffer, has_tool_calls, thinking_signature)，
+    统一为 OpenAI 风格 tool_calls，供上层落盘/前端展示。
+    """
+    gateway = (llm_config.get("gateway") or "openai").lower()
+    if gateway == "anthropic":
+        return await _stream_anthropic_response(
+            llm_config,
+            llm_messages,
+            tool_schemas,
+            system_prompt,
+            msg_id,
+            session_id,
+            output_queue,
+            stream_chunk_timeout,
+        )
+    return await _stream_openai_response(
+        llm_config,
+        llm_messages,
+        tool_schemas,
+        system_prompt,
+        msg_id,
+        session_id,
+        output_queue,
+        stream_chunk_timeout,
+    )
+
+
+async def _stream_openai_response(
+    llm_config: dict,
+    llm_messages: list,
+    tool_schemas: list,
+    system_prompt: str,
+    msg_id: str,
+    session_id: str,
+    output_queue,
+    stream_chunk_timeout: int,
+):
+    """OpenAI 网关：chat.completions 流式解析（thinking / content / tool_calls）。
+
+    thinking 通过 ``OpenAIThinkingExtractor`` 统一提取，兼容：
+    - ``delta.reasoning_content``（DeepSeek / Kimi）
+    - ``delta.thinking``（部分私有协议，如 MiniMax 系）
+    - ``delta.content`` 内嵌 ``<think>...</think>`` 标签（Qwen3 系）
+    """
+    client = _get_llm_client(llm_config)
+    full_content = ""
+    reasoning_content = ""
+    tool_calls_buffer = []
+    has_tool_calls = False
+    extractor = OpenAIThinkingExtractor()
+
+    stream = await client.chat.completions.create(
+        model=llm_config.get("model", "deepseek-chat"),
+        messages=[{"role": "system", "content": system_prompt}, *llm_messages],
+        tools=tool_schemas,
+        stream=True,
+    )
+
+    async for chunk in _aiter_with_timeout(stream, stream_chunk_timeout):
+        delta = chunk.choices[0].delta
+
+        think_chunk, content_chunk = extractor.feed(delta)
+
+        if think_chunk:
+            reasoning_content += think_chunk
+            output_queue.put_nowait(
+                Event(
+                    type="stream.thinking",
+                    payload={"delta": think_chunk, "message_id": msg_id},
+                    session_id=session_id,
+                )
+            )
+
+        if content_chunk:
+            if not has_tool_calls:
+                full_content += content_chunk
+                output_queue.put_nowait(
+                    Event(
+                        type="stream.chunk",
+                        payload={"delta": content_chunk, "message_id": msg_id},
+                        session_id=session_id,
+                    )
+                )
+
+        if delta.tool_calls:
+            has_tool_calls = True
+            for tc in delta.tool_calls:
+                index = tc.index
+                while len(tool_calls_buffer) <= index:
+                    tool_calls_buffer.append(
+                        {
+                            "id": "",
+                            "type": "function",
+                            "function": {"name": "", "arguments": ""},
+                        }
+                    )
+                tc_id = tc.id or ""
+                tc_name = tc.function.name if tc.function else ""
+                tc_args = tc.function.arguments if tc.function else ""
+                for existing_tc in tool_calls_buffer:
+                    if (
+                        existing_tc.get("id") == tc_id
+                        and existing_tc.get("function", {}).get("name") == tc_name
+                        and existing_tc.get("function", {}).get("arguments") == tc_args
+                    ):
+                        break
+                else:
+                    if tc.id:
+                        tool_calls_buffer[index]["id"] = tc.id
+                    if tc.function:
+                        if tc.function.name:
+                            tool_calls_buffer[index]["function"]["name"] = tc.function.name
+                        if tc.function.arguments:
+                            tool_calls_buffer[index]["function"]["arguments"] += (
+                                tc.function.arguments
+                            )
+
+    # 回收 <think> 标签解析器的残余缓冲（跨 chunk 切分的尾部标签）
+    tail_think, tail_content = extractor.finalize()
+    if tail_think:
+        reasoning_content += tail_think
+        output_queue.put_nowait(
+            Event(
+                type="stream.thinking",
+                payload={"delta": tail_think, "message_id": msg_id},
+                session_id=session_id,
+            )
+        )
+    if tail_content and not has_tool_calls:
+        full_content += tail_content
+        output_queue.put_nowait(
+            Event(
+                type="stream.chunk",
+                payload={"delta": tail_content, "message_id": msg_id},
+                session_id=session_id,
+            )
+        )
+
+    return full_content, reasoning_content, tool_calls_buffer, has_tool_calls, ""
+
+
+async def _stream_anthropic_once(
+    llm_config: dict,
+    llm_messages: list,
+    tool_schemas: list,
+    system_prompt: str,
+    msg_id: str,
+    session_id: str,
+    output_queue,
+    stream_chunk_timeout: int,
+    thinking_mode: str,
+):
+    """Anthropic 网关单次流式请求：messages API 事件解析。
+
+    - content_block_start(type=tool_use) → 工具调用
+    - text_delta → stream.chunk；thinking_delta → stream.thinking（含 signature 捕获）
+    - input_json_delta → 累积工具参数（partial_json 拼接）
+    """
+    client = _get_llm_client(llm_config)
+    full_content = ""
+    reasoning_content = ""
+    thinking_signature = ""
+    has_tool_calls = False
+    tool_blocks = {}
+    tool_args = {}
+    tool_calls_buffer = []
+
+    max_tokens = int(
+        llm_config.get("anthropic_max_tokens")
+        or llm_config.get("max_tokens")
+        or 8192
+    )
+    anthropic_messages = _to_anthropic_messages(llm_messages)
+    anthropic_tools = _to_anthropic_tools(tool_schemas)
+
+    request_kwargs = {
+        "model": llm_config.get("model", "claude-3-5-sonnet-latest"),
+        "max_tokens": max_tokens,
+        "system": system_prompt,
+        "messages": anthropic_messages,
+        "stream": True,
+    }
+    if anthropic_tools:
+        request_kwargs["tools"] = anthropic_tools
+    thinking_kw = thinking_kwargs_for_mode(
+        thinking_mode,
+        budget_tokens=llm_config.get("thinking_budget_tokens"),
+    )
+    if thinking_kw is not None:
+        request_kwargs["thinking"] = thinking_kw
+
+    stream = await client.messages.create(**request_kwargs)
+
+    async for event in _aiter_with_timeout(stream, stream_chunk_timeout):
+        etype = getattr(event, "type", "")
+        if etype == "content_block_start":
+            block = event.content_block
+            if getattr(block, "type", "") == "tool_use":
+                has_tool_calls = True
+                index = event.index
+                tool_blocks[index] = {
+                    "id": getattr(block, "id", ""),
+                    "name": getattr(block, "name", ""),
+                }
+                tool_args[index] = ""
+        elif etype == "content_block_delta":
+            delta = event.delta
+            dtype = getattr(delta, "type", "")
+            if dtype == "text_delta" and getattr(delta, "text", None):
+                text = delta.text
+                full_content += text
+                output_queue.put_nowait(
+                    Event(
+                        type="stream.chunk",
+                        payload={"delta": text, "message_id": msg_id},
+                        session_id=session_id,
+                    )
+                )
+            elif dtype == "thinking_delta":
+                sig = getattr(delta, "signature", None)
+                if sig:
+                    thinking_signature = sig
+                thinking = getattr(delta, "thinking", None)
+                if thinking:
+                    reasoning_content += thinking
+                    output_queue.put_nowait(
+                        Event(
+                            type="stream.thinking",
+                            payload={"delta": thinking, "message_id": msg_id},
+                            session_id=session_id,
+                        )
+                    )
+            elif dtype == "input_json_delta" and getattr(delta, "partial_json", None):
+                index = event.index
+                tool_args[index] = tool_args.get(index, "") + delta.partial_json
+        elif etype == "content_block_stop":
+            index = event.index
+            if index in tool_blocks:
+                tool_calls_buffer.append(
+                    {
+                        "id": tool_blocks[index]["id"],
+                        "type": "function",
+                        "function": {
+                            "name": tool_blocks[index]["name"],
+                            "arguments": tool_args.get(index, ""),
+                        },
+                    }
+                )
+
+    return full_content, reasoning_content, tool_calls_buffer, has_tool_calls, thinking_signature
+
+
+async def _stream_anthropic_response(
+    llm_config: dict,
+    llm_messages: list,
+    tool_schemas: list,
+    system_prompt: str,
+    msg_id: str,
+    session_id: str,
+    output_queue,
+    stream_chunk_timeout: int,
+):
+    """Anthropic 网关：带 thinking 模式状态机的流式请求。
+
+    状态机顺序：adaptive（Claude 4.6+）→ enabled（Claude 4.5-，需 budget_tokens）→ none。
+    仅当 API 明确拒绝当前 thinking 模式时才降级重试（见 is_thinking_mode_rejected），
+    成功后按模型名缓存模式，会话进程内不再重复降级。
+    """
+    model_name = llm_config.get("model", "claude-3-5-sonnet-latest")
+    if llm_config.get("enable_thinking") is False:
+        thinking_mode = THINKING_MODE_NONE
+    else:
+        thinking_mode = _ANTHROPIC_THINKING_MODE_CACHE.get(
+            model_name, THINKING_MODE_ADAPTIVE
+        )
+
+    while True:
+        try:
+            result = await _stream_anthropic_once(
+                llm_config=llm_config,
+                llm_messages=llm_messages,
+                tool_schemas=tool_schemas,
+                system_prompt=system_prompt,
+                msg_id=msg_id,
+                session_id=session_id,
+                output_queue=output_queue,
+                stream_chunk_timeout=stream_chunk_timeout,
+                thinking_mode=thinking_mode,
+            )
+            _ANTHROPIC_THINKING_MODE_CACHE[model_name] = thinking_mode
+            return result
+        except Exception as e:
+            # 仅 thinking 模式被拒才降级；认证/配额/模型不存在等错误原样抛出
+            if not is_thinking_mode_rejected(e, thinking_mode):
+                raise
+            nxt = next_thinking_mode(thinking_mode)
+            if nxt is None:
+                raise
+            thinking_mode = nxt
+            _ANTHROPIC_THINKING_MODE_CACHE[model_name] = thinking_mode
+
+
 @app.agent(name="fastclaw_agent", tools=["run_shell", "run_skills"])
 async def fastclaw_agent(state: dict, event: Event) -> dict:
     """FastClaw 主 Agent：流式输出 + 同步收集 tool_calls
@@ -899,7 +1362,7 @@ async def fastclaw_agent(state: dict, event: Event) -> dict:
                     {
                         "role": "tool",
                         "tool_call_id": tool_call_id,
-                        "content": f"[{result['tool_name']}]: {result['result']}",
+                        "content": str(result['result']),
                     }
                 )
         else:
@@ -917,7 +1380,7 @@ async def fastclaw_agent(state: dict, event: Event) -> dict:
                     state["messages"].insert(insert_at, {
                         "role": "tool",
                         "tool_call_id": tool_call_id,
-                        "content": f"[{result['tool_name']}]: {result['result']}",
+                        "content": str(result['result']),
                     })
                     insert_at += 1
             else:
@@ -962,8 +1425,6 @@ async def fastclaw_agent(state: dict, event: Event) -> dict:
 
     llm_config = agent_config.get("llm", {})
 
-    client = _get_llm_client(llm_config)
-
     extra_workspaces = agent_config.get("extra_workspaces", [])
     skills_list = "\n".join([f"- {name}: {info['description']}" for name, info in SKILLS.items()]) or "- (No built-in skills)"
     system_prompt = format_system_prompt(
@@ -971,85 +1432,23 @@ async def fastclaw_agent(state: dict, event: Event) -> dict:
         workspace_path=str(get_workspace_path()),
     )
 
-    full_content = ""
-    reasoning_content = ""
-    tool_calls_buffer = []
-    has_tool_calls = False
-
     stream_chunk_timeout = settings.get("stream_chunk_timeout", 60) or 60
 
     ctx_size = sum(len(json.dumps(m, ensure_ascii=False)) for m in llm_messages)
     logger.debug("calling LLM session=%s context_bytes=%d", session_id, ctx_size)
     try:
-        stream = await client.chat.completions.create(
-            model=llm_config.get("model", "deepseek-chat"),
-            messages=[
-                {"role": "system", "content": system_prompt},
-                *llm_messages,
-            ],
-            tools=app.get_tool_schemas(),
-            stream=True,
+        full_content, reasoning_content, tool_calls_buffer, has_tool_calls, thinking_signature = (
+            await _stream_llm_response(
+                llm_config=llm_config,
+                llm_messages=llm_messages,
+                tool_schemas=app.get_tool_schemas(),
+                system_prompt=system_prompt,
+                msg_id=msg_id,
+                session_id=session_id,
+                output_queue=output_queue,
+                stream_chunk_timeout=stream_chunk_timeout,
+            )
         )
-
-        async for chunk in _aiter_with_timeout(stream, stream_chunk_timeout):
-            delta = chunk.choices[0].delta
-
-            if hasattr(delta, "reasoning_content") and delta.reasoning_content:
-                reasoning_content += delta.reasoning_content
-                output_queue.put_nowait(
-                    Event(
-                        type="stream.thinking",
-                        payload={"delta": delta.reasoning_content, "message_id": msg_id},
-                        session_id=session_id,
-                    )
-                )
-
-            if delta.content:
-                if not has_tool_calls:
-                    full_content += delta.content
-                    output_queue.put_nowait(
-                        Event(
-                            type="stream.chunk",
-                            payload={"delta": delta.content, "message_id": msg_id},
-                            session_id=session_id,
-                        )
-                    )
-
-            if delta.tool_calls:
-                has_tool_calls = True
-                for tc in delta.tool_calls:
-                    index = tc.index
-                    while len(tool_calls_buffer) <= index:
-                        tool_calls_buffer.append(
-                            {
-                                "id": "",
-                                "type": "function",
-                                "function": {"name": "", "arguments": ""},
-                            }
-                        )
-                    tc_id = tc.id or ""
-                    tc_name = tc.function.name if tc.function else ""
-                    tc_args = tc.function.arguments if tc.function else ""
-                    for existing_tc in tool_calls_buffer:
-                        if (
-                            existing_tc.get("id") == tc_id
-                            and existing_tc.get("function", {}).get("name") == tc_name
-                            and existing_tc.get("function", {}).get("arguments")
-                            == tc_args
-                        ):
-                            break
-                    else:
-                        if tc.id:
-                            tool_calls_buffer[index]["id"] = tc.id
-                        if tc.function:
-                            if tc.function.name:
-                                tool_calls_buffer[index]["function"]["name"] = (
-                                    tc.function.name
-                                )
-                            if tc.function.arguments:
-                                tool_calls_buffer[index]["function"]["arguments"] += (
-                                    tc.function.arguments
-                                )
 
         if has_tool_calls:
             if tool_calls_buffer:
@@ -1093,6 +1492,8 @@ async def fastclaw_agent(state: dict, event: Event) -> dict:
             assistant_msg = {"role": "assistant", "content": content_to_save}
             if reasoning_content:
                 assistant_msg["reasoning_content"] = reasoning_content
+            if thinking_signature:
+                assistant_msg["thinking_signature"] = thinking_signature
             if tool_calls_buffer:
                 assistant_msg["tool_calls"] = tool_calls_buffer
             state["messages"].append(assistant_msg)

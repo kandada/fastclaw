@@ -100,6 +100,13 @@ FastClaw is built on the core concept of **event-driven agent orchestration**. K
 
 ## Changelog
 
+### v1.1.24 (2026-08-29)
+- ✨ New: Full Anthropic gateway support — Messages API streaming, tool calling, extended thinking (adaptive → enabled → none state machine), and auto base_url adjustment for MiniMax / DeepSeek / Moonshot Anthropic-compatible endpoints
+- ✨ New: OpenAI gateway thinking compatibility — unified extraction of `reasoning_content` / `thinking` field / `<think>...</think>` tags (MiniMax-M3, Qwen3, etc.)
+- 🐛 Fix: WebUI in-progress view no longer drops tool calls — repeated same-name tools across ReAct rounds and parallel calls now each get their own card (id-based matching)
+- 🐛 Fix: WebUI message block ordering — content now appears before tool_call in history replay and resume, consistent with live streaming (thinking → content → tool_call → tool_result)
+- 🐛 Fix: WebUI tool result cards unified to a generic "tool" label, consistent with the stored message format
+
 ### v1.1.23 (2026-08-15)
 - ✨ New: Cron jobs now support Feishu (Lark) — scheduled tasks can deliver results to Feishu chats
 - 🔧 Improvement: WebUI refactor — optimized conversation list interaction
