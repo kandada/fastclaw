@@ -1,16 +1,16 @@
-# USER.md - 用户画像
+# USER.md - User Profile
 
-此文件用于定义用户信息，AI 在运行时可以参考此信息来提供个性化服务。
+This file defines user information that the AI can reference at runtime to provide personalized service.
 
-## 用户基本信息
-- 名称：用户
-- 角色：普通用户
+## Basic User Information
+- Name: User
+- Role: General user
 
-## 偏好设置
-- 语言：中文
-- 交互风格：简洁直接
+## Preferences
+- Language: English
+- Interaction style: Concise and direct
 
-## 使用场景
-- 日常问答
-- 任务自动化
-- 信息查询
+## Usage Scenarios
+- Daily Q&A
+- Task automation
+- Information retrieval

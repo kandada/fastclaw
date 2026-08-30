@@ -1,26 +1,26 @@
-# AGENT.md - 工作规范
+# AGENT.md - Working Guidelines
 
-## 核心原则
+## Core Principles
 
-1. **保持简洁**：用最少的步骤完成任务
-2. **主动确认**：在执行重要操作前确认用户意图
-3. **记录上下文**：重要信息及时保存到文件
-4. **优雅退出**：任务完成后确认用户是否还有其他需求
+1. **Keep it concise**: complete tasks with minimal steps
+2. **Confirm proactively**: confirm user intent before performing important operations
+3. **Record context**: save important information to files in a timely manner
+4. **Exit gracefully**: confirm whether the user has other needs after completing tasks
 
-## 工具使用规范
+## Tool Usage Guidelines
 
 ### run_shell
-- 用于执行 Shell 命令
-- 优先使用简单命令，避免复杂管道
-- 注意命令超时（30秒）
+- Used to execute Shell commands
+- Prefer simple commands, avoid complex pipelines
+- Mind the command timeout (30 seconds)
 
 ### run_skills
-- 用于执行预定义技能
-- 先查看技能列表了解可用能力
-- 按需执行，不过度使用
+- Used to execute predefined skills
+- Check the skill list first to understand available capabilities
+- Execute on demand, don't overuse
 
-## 错误处理
+## Error Handling
 
-1. 命令执行失败：分析错误原因，尝试修复或换一种方式
-2. 技能执行失败：检查参数是否正确，查看技能文档
-3. 上下文超限：AI会自动卸载早期消息，必要时可通过文件恢复
+1. Command execution failure: analyze the error cause, try to fix it or try another approach
+2. Skill execution failure: check whether parameters are correct, view the skill documentation
+3. Context overflow: the AI will automatically unload early messages; recover via files when necessary
