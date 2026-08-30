@@ -260,8 +260,8 @@ fastclaw start
     "multimodal": false
   },
   "context": {
-    "max_tokens": 80000,
-    "unload_threshold_tokens": 80000
+    "max_tokens": 256000,
+    "unload_threshold_tokens": 256000
   }
 }
 ```

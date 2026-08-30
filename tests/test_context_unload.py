@@ -86,7 +86,7 @@ class TestLoadMessagesComplete:
     def test_load_with_over_threshold_messages(self, tmp_path, monkeypatch):
         _patch_workspace(monkeypatch, tmp_path)
         session_id = "test_unload_threshold"
-        messages = [{"role": "user", "content": "x" * 5000} for _ in range(100)]
+        messages = [{"role": "user", "content": "x" * 5000} for _ in range(260)]
         total_tokens = count_messages_tokens(messages)
         assert total_tokens > CONTEXT_UNLOAD_THRESHOLD, "确保消息量超过阈值"
         save_messages_to_jsonl(session_id, messages)

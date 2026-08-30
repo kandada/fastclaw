@@ -24,8 +24,8 @@ llm:
   base_url: https://api.deepseek.com/v1
   multimodal: false
 context:
-  max_tokens: 80000
-  unload_threshold_tokens: 80000
+  max_tokens: 256000
+  unload_threshold_tokens: 256000
 extra_workspaces: []
 ```
 

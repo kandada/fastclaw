@@ -10,8 +10,8 @@
     "multimodal": false
   },
   "context": {
-    "max_tokens": 100000,
-    "unload_threshold_tokens": 90000
+    "max_tokens": 256000,
+    "unload_threshold_tokens": 256000
   },
   "timeout": 300,
   "extra_workspaces": [],

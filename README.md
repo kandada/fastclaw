@@ -100,6 +100,10 @@ FastClaw is built on the core concept of **event-driven agent orchestration**. K
 
 ## Changelog
 
+### v1.1.25 (2026-08-30)
+- ✨ New: Default context (max_tokens / unload_threshold_tokens) raised to 256000 — most mainstream LLMs now support this window or larger
+- 🔧 Improvement: Default agent personality files (SOUL.md / USER.md / AGENT.md) translated to English; USER.md language preference now defaults to English for international users
+
 ### v1.1.24 (2026-08-29)
 - ✨ New: Full Anthropic gateway support — Messages API streaming, tool calling, extended thinking (adaptive → enabled → none state machine), and auto base_url adjustment for MiniMax / DeepSeek / Moonshot Anthropic-compatible endpoints
 - ✨ New: OpenAI gateway thinking compatibility — unified extraction of `reasoning_content` / `thinking` field / `<think>...</think>` tags (MiniMax-M3, Qwen3, etc.)

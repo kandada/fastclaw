@@ -62,13 +62,13 @@ class TestContextThreshold:
 
     def test_threshold_default(self):
         """测试默认阈值"""
-        assert CONTEXT_UNLOAD_THRESHOLD == 80000
+        assert CONTEXT_UNLOAD_THRESHOLD == 256000
 
     def test_threshold_approximately_chars(self):
         """测试阈值对应的字符数"""
-        # 80000 tokens ≈ 320000 characters
+        # 256000 tokens ≈ 1024000 characters
         expected_chars = CONTEXT_UNLOAD_THRESHOLD * 4
-        assert expected_chars == 320000
+        assert expected_chars == 1024000
 
 
 class TestContextRecovery:

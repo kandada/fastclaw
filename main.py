@@ -207,8 +207,8 @@ def add_agent():
     base_url = input_with_default("Base URL", "https://api.deepseek.com/v1")
 
     print("\nContext Configuration:")
-    max_tokens = input_with_default("Max tokens", "80000")
-    unload_threshold = input_with_default("Unload threshold", "80000")
+    max_tokens = input_with_default("Max tokens", "256000")
+    unload_threshold = input_with_default("Unload threshold", "256000")
 
     agent_config = {
         "name": name,

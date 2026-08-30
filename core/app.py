@@ -64,7 +64,7 @@ else:
 
 logger = logging.getLogger(__name__)
 
-CONTEXT_UNLOAD_THRESHOLD = 80000
+CONTEXT_UNLOAD_THRESHOLD = 256000
 
 # === 缓存基础设施：减少首 token 延迟 ===
 
@@ -278,8 +278,8 @@ def _default_agent_config(agent_id: str) -> dict:
             "multimodal": False,
         },
         "context": {
-            "max_tokens": 80000,
-            "unload_threshold_tokens": 156000,
+            "max_tokens": 256000,
+            "unload_threshold_tokens": 256000,
         },
         "extra_workspaces": [],
     }

@@ -100,6 +100,10 @@ FastClaw 基于**事件驱动的 Agent 编排**核心概念。主要设计原则
 
 ## 更新日志
 
+### v1.1.25 (2026-08-30)
+- ✨ 新增：默认上下文（max_tokens / unload_threshold_tokens）提升至 256000 — 目前主流大模型大多已支持该窗口或更大
+- 🔧 优化：默认 Agent 人格文件（SOUL.md / USER.md / AGENT.md）改为英文，USER.md 语言偏好默认 English，面向海外用户
+
 ### v1.1.24 (2026-08-29)
 - ✨ 新增：完整支持 Anthropic 网关 — Messages API 流式、工具调用、扩展思考（adaptive → enabled → none 状态机自动降级），并自动适配 MiniMax / DeepSeek / Moonshot 的 Anthropic 兼容端点
 - ✨ 新增：OpenAI 网关 thinking 兼容 — 统一提取 `reasoning_content` / `thinking` 字段 / `<think>...</think>` 标签（MiniMax-M3、Qwen3 等）
