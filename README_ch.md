@@ -100,6 +100,9 @@ FastClaw 基于**事件驱动的 Agent 编排**核心概念。主要设计原则
 
 ## 更新日志
 
+### v1.1.26 (2026-10-08)
+- ✨ 新增：预置 `fastbrowser` 技能 — 通过 `run_shell` 调用 `fastbrowser` CLI，实现真实浏览器自动化（JS/SPA 渲染、截图、下载）与操作系统无障碍访问（读取/操作网页与桌面应用）
+
 ### v1.1.25 (2026-08-30)
 - ✨ 新增：默认上下文（max_tokens / unload_threshold_tokens）提升至 256000 — 目前主流大模型大多已支持该窗口或更大
 - 🔧 优化：默认 Agent 人格文件（SOUL.md / USER.md / AGENT.md）改为英文，USER.md 语言偏好默认 English，面向海外用户

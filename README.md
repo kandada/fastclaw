@@ -100,6 +100,9 @@ FastClaw is built on the core concept of **event-driven agent orchestration**. K
 
 ## Changelog
 
+### v1.1.26 (2026-10-08)
+- ✨ New: Bundled `fastbrowser` skill — real-browser automation (JS/SPA rendering, screenshots, downloads) and OS accessibility (read/act on web pages and native desktop apps) via the `fastbrowser` CLI driven with `run_shell`
+
 ### v1.1.25 (2026-08-30)
 - ✨ New: Default context (max_tokens / unload_threshold_tokens) raised to 256000 — most mainstream LLMs now support this window or larger
 - 🔧 Improvement: Default agent personality files (SOUL.md / USER.md / AGENT.md) translated to English; USER.md language preference now defaults to English for international users
