@@ -98,6 +98,10 @@ FastClaw is built on the core concept of **event-driven agent orchestration**. K
 - 🎨 **Extensible** - Easy to add custom skills and agents
 - 🐍 **Python Ecosystem** - Seamlessly call professional libraries like numpy and pandas, enabling AI to use Python ecosystem tools as skillfully as humans
 
+## Optional Web Search
+
+The bundled [parallel_search skill](workspace_seed/skills/bundled/parallel_search/SKILL.md) adds free, keyless web search and page excerpts through Parallel Search MCP. Install its optional requirements in FastClaw's Python environment, then use it through `run_skills`. Anonymous requests have lower rate limits; your existing LLM configuration is still required.
+
 ## Changelog
 
 ### v1.1.25 (2026-08-30)
